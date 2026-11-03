@@ -18,9 +18,18 @@ class Hud {
     this.g = scene.add.graphics().setDepth(D).setScrollFactor(0);
     this.world = scene.add.graphics().setDepth(CONFIG.DEPTH.WORLD_UI);
 
+    // 화면 위 좌우 이름: 1:1이면 탱크 이름, 팀전이면 팀 이름
+    this.teamMode = tanks.length > 2;
+    const label = (team) => (this.teamMode ? CONFIG.TEAMS[team] : tanks.find((t) => t.player.team === team).player.name);
     this.names = [text(16, 12, 22), text(W - 16, 12, 22, 1)];
-    this.names[0].setText(tanks[0].player.name);
-    this.names[1].setText(tanks[1].player.name);
+    this.names[0].setText(label('blue'));
+    this.names[1].setText(label('red'));
+
+    // 팀전에서는 같은 색 탱크를 구분하도록 탱크 아래에 이름표를 단다.
+    this.tags = this.teamMode ? tanks.map((t) => scene.add.text(0, 0, t.player.name, {
+      fontFamily: CONFIG.FONT, fontSize: '14px', fontStyle: 'bold',
+      color: '#ffffff', stroke: '#0b1a2b', strokeThickness: 4,
+    }).setOrigin(0.5, 0).setDepth(CONFIG.DEPTH.WORLD_UI)) : [];
     this.timer = text(W / 2, 8, 34, 0.5);
     this.wind = text(W / 2, 50, 18, 0.5);
     this.banner = text(W / 2, 100, 30, 0.5);
@@ -64,6 +73,10 @@ class Hud {
     this.drawMinimap(g);
     if (shell) this.drawShellIndicator(g, shell);
     for (const t of this.tanks) if (!t.dead) this.drawTankHpBar(this.world, t);
+    this.tags.forEach((tag, i) => {
+      const t = this.tanks[i];
+      tag.setVisible(!t.dead).setPosition(t.x, t.y + 17);
+    });
 
     if (active && !active.dead) {
       this.drawPowerBar(g, active, power);

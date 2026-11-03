@@ -9,7 +9,10 @@ class GameScene extends Phaser.Scene {
     addFixedBackground(this);
     this.terrain = new Terrain(this);
     const barrelInfo = this.registry.get('barrelInfo');
-    this.tanks = CONFIG.PLAYERS.map((p) => new Tank(this, this.terrain, p, barrelInfo));
+    // 모드별 참가자: cpu = 1P vs CPU, 2p = 핫시트, 2v2 = 파랑팀(사람 2명) vs 빨강팀(CPU 2대)
+    const players = (this.mode === '2v2' ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
+      .map((p) => ({ ...p, ai: this.mode !== '2p' && p.team === 'red' }));
+    this.tanks = players.map((p) => new Tank(this, this.terrain, p, barrelInfo));
     this.hud = new Hud(this, this.tanks, this.terrain);
 
     const cam = this.cameras.main;
@@ -23,7 +26,7 @@ class GameScene extends Phaser.Scene {
     ];
 
     this.state = 'idle';
-    this.activeIndex = 1; // startTurn이 먼저 넘기므로 파랑부터 시작
+    this.activeIndex = -1; // startTurn이 먼저 넘기므로 첫 탱크부터 시작
     this.shells = [];
     this.followedShell = null;
     this.stepAcc = 0;
@@ -44,7 +47,12 @@ class GameScene extends Phaser.Scene {
 
   get active() { return this.tanks[this.activeIndex]; }
 
-  get isAiTurn() { return this.mode === 'cpu' && this.activeIndex === 1; }
+  get isAiTurn() { return !!this.active?.player.ai; }
+
+  // 살아 있는 탱크가 남은 팀 목록
+  aliveTeams() {
+    return [...new Set(this.tanks.filter((t) => !t.dead).map((t) => t.player.team))];
+  }
 
   // ---- 카메라 ----
 
@@ -122,7 +130,12 @@ class GameScene extends Phaser.Scene {
   // ---- 턴 ----
 
   startTurn() {
-    this.activeIndex = 1 - this.activeIndex;
+    // 다음 살아 있는 탱크로 넘긴다 (죽은 탱크는 건너뜀).
+    const n = this.tanks.length;
+    for (let k = 1; k <= n; k++) {
+      const i = (this.activeIndex + k) % n;
+      if (!this.tanks[i].dead) { this.activeIndex = i; break; }
+    }
     const tank = this.active;
     tank.fuel = CONFIG.TANK.FUEL;
     const max = CONFIG.PHYSICS.WIND_MAX;
@@ -141,7 +154,9 @@ class GameScene extends Phaser.Scene {
     for (const t of this.tanks) t.update(dt);
 
     // 조준 중에 맵 아래로 떨어지는 등으로 탱크가 죽으면 쏘지 않고 바로 정산한다.
-    if ((this.state === 'aiming' || this.state === 'charging') && this.tanks.some((t) => t.dead)) {
+    // 조준 중에 내 탱크가 죽거나 한 팀이 전멸하면 쏘지 않고 바로 정산한다.
+    if ((this.state === 'aiming' || this.state === 'charging')
+      && (this.active.dead || this.aliveTeams().length < 2)) {
       this.beginResolve();
     }
 
@@ -201,7 +216,9 @@ class GameScene extends Phaser.Scene {
     if (tank.falling) return;
 
     if (!ai.plan) {
-      const enemy = this.tanks[1 - this.activeIndex];
+      // 가장 가까운 살아 있는 적을 노린다.
+      const enemies = this.tanks.filter((t) => !t.dead && t.player.team !== tank.player.team);
+      const enemy = enemies.reduce((a, b) => (Math.abs(b.x - tank.x) < Math.abs(a.x - tank.x) ? b : a));
       ai.plan = planAiShot(tank, enemy, this.wind, this.terrain, this.tanks);
       tank.facing = ai.plan.facing;
       this.weaponIndex = ai.plan.weapon;
@@ -325,19 +342,26 @@ class GameScene extends Phaser.Scene {
     if (this.resolveWait > 0) return;
     if (this.tanks.some((t) => t.falling)) return;
 
-    const alive = this.tanks.filter((t) => !t.dead);
-    if (alive.length < 2) this.endGame(alive[0] || null);
+    const teams = this.aliveTeams();
+    if (teams.length < 2) this.endGame(teams[0] || null);
     else this.startTurn();
   }
 
-  endGame(winner) {
+  // winnerTeam: 'blue' | 'red' | null(무승부)
+  endGame(winnerTeam) {
     this.state = 'gameover';
     this.hud.hideTurnInfo();
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     const D = CONFIG.DEPTH.OVERLAY;
     this.add.rectangle(0, 0, W, H, 0x0b1a2b, 0.6).setOrigin(0).setDepth(D).setScrollFactor(0);
-    const message = winner ? `${winner.player.name} 승리!` : '무승부';
+    let message = '무승부';
+    if (winnerTeam) {
+      const label = this.mode === '2v2'
+        ? CONFIG.TEAMS[winnerTeam]
+        : this.tanks.find((t) => t.player.team === winnerTeam).player.name;
+      message = `${label} 승리!`;
+    }
     this.add.text(W / 2, H / 2 - 60, message, {
       fontFamily: CONFIG.FONT, fontSize: '76px', fontStyle: 'bold', color: '#fde047',
       stroke: '#0b1a2b', strokeThickness: 10,

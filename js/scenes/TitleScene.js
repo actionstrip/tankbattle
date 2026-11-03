@@ -16,10 +16,11 @@ class TitleScene extends Phaser.Scene {
       color: '#fde047', stroke: '#0b1a2b', strokeThickness: 12,
     }).setOrigin(0.5);
 
-    this.addButton(W / 2, 360, '1P  vs  CPU', () => this.begin('cpu'));
-    this.addButton(W / 2, 455, '2P  핫시트', () => this.begin('2p'));
+    this.addButton(W / 2, 340, '1P  vs  CPU', () => this.begin('cpu'));
+    this.addButton(W / 2, 425, '2P  핫시트', () => this.begin('2p'));
+    this.addButton(W / 2, 510, '2:2  팀전 (vs CPU)', () => this.begin('2v2'));
 
-    this.add.text(W / 2, 580, '←→ 이동    ↑↓ 각도    Space 누르고 떼기 발사    1·2·3 무기', {
+    this.add.text(W / 2, 610, '←→ 이동    ↑↓ 각도    Space 누르고 떼기 발사    1·2·3 무기', {
       fontFamily: CONFIG.FONT, fontSize: '22px', color: '#ffffff',
       stroke: '#0b1a2b', strokeThickness: 6,
     }).setOrigin(0.5);

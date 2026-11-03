@@ -66,9 +66,17 @@ const CONFIG = {
 
   // 양 끝 울타리(땅 레이어에 포함되어 단단함) 바로 안쪽에서 생성한다.
   PLAYERS: [
-    { name: '파랑', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
-    { name: '빨강', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
+    { name: '파랑', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
+    { name: '빨강', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
   ],
+  // 2:2 팀전. 배열 순서가 턴 순서다 (팀 번갈아). 2대는 서로 다른 발판에 둔다.
+  TEAM_PLAYERS: [
+    { name: '파랑1', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
+    { name: '빨강1', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
+    { name: '파랑2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
+    { name: '빨강2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
+  ],
+  TEAMS: { blue: '파랑팀', red: '빨강팀' },
 
   DEPTH: { BACK: 0, TERRAIN: 5, TANK: 10, WORLD_UI: 15, SHELL: 20, FX: 30, HUD: 100, OVERLAY: 200 },
 };
