@@ -194,7 +194,7 @@ class Terrain {
   carve(cx, cy, r) {
     const { w, h, solid } = this;
     const depth = r * 0.72;        // 폭발 중심 아래로 파이는 깊이
-    const p = 2.6;                 // 클수록 바닥이 평평하고 벽이 가파르다
+    const FLAT = 0.35;             // 중심에서 이 비율까지는 평평한 바닥, 바깥은 둥근 어깨
     const lipMax = r * 1.1;        // 이 두께 이하의 처마만 걷어 낸다 (두꺼운 절벽은 남김)
     const ph1 = Math.random() * Math.PI * 2;
     const ph2 = Math.random() * Math.PI * 2;
@@ -209,7 +209,10 @@ class Terrain {
       const t = Math.min(1, Math.abs(x - cx) / r);
       // 바닥선에 약간의 울퉁불퉁함을 준다 (가장자리로 갈수록 0).
       const wobble = (Math.sin(x * 0.11 + ph1) * 0.6 + Math.sin(x * 0.27 + ph2) * 0.4) * r * 0.06 * (1 - t);
-      const yb = Math.min(h - 1, Math.round(cy + depth * Math.pow(1 - Math.pow(t, p), 1 / p) + wobble));
+      // 코사인 어깨: 가장자리에서 기울기가 0이라 수직 턱이 생기지 않는다 (최대 약 60°).
+      const u = Math.max(0, (t - FLAT) / (1 - FLAT));
+      const prof = (1 + Math.cos(Math.PI * u)) / 2;
+      const yb = Math.min(h - 1, Math.round(cy + depth * prof + wobble));
       const half = Math.sqrt(Math.max(0, 1 - t * t)) * r * 0.85;
       let yt = Math.max(0, Math.round(cy - half));
 
@@ -223,6 +226,36 @@ class Terrain {
         ctx.fillRect(x, yt, 1, yb - yt + 1);
       }
       bottom.push(x, yb);
+    }
+
+    // 경사면에 맞아 처마를 걷어 낸 경우 구덩이 옆에 수직 벽이 남는다.
+    // 중심에서 바깥으로 가며 이웃 열과의 높이 차를 STEP px 이하로 깎아 경사로 이어 준다.
+    const STEP = 2;                                 // 열당 최대 높이 차 (약 63°, 등판 한계보다 완만)
+    const ext = Math.round(r * 0.6);                // 폭발 범위 밖으로 깎을 수 있는 최대 폭
+    const yTop = Math.max(0, Math.round(cy - r * 1.6));
+    const surf = (x) => {                           // 위쪽 한계부터 내려가며 첫 흙. 한계부터 흙이면 절벽(-1)
+      if (solid[yTop * w + x] === 1) return -1;
+      for (let y = yTop + 1; y < h; y++) if (solid[y * w + x] === 1) return y;
+      return h;
+    };
+    const cxi = Math.round(Phaser.Math.Clamp(cx, 0, w - 1));
+    for (const dir of [1, -1]) {
+      let prev = surf(cxi);
+      if (prev < 0) continue;
+      const end = dir > 0 ? Math.min(w - 1, x1 + ext) : Math.max(0, x0 - ext);
+      for (let x = cxi + dir; dir > 0 ? x <= end : x >= end; x += dir) {
+        let s = surf(x);
+        if (s < 0) break;
+        const limit = prev - STEP;
+        if (s < limit) {
+          for (let y = s; y < limit; y++) solid[y * w + x] = 0;
+          ctx.fillRect(x, s, 1, limit - s);
+          s = surf(x);
+        } else if (dir > 0 ? x > x1 : x < x0) {
+          break; // 범위 밖에서 더 깎을 필요가 없으면 끝
+        }
+        prev = s;
+      }
     }
 
     // 파인 바닥을 따라 그을음을 입힌다 (남은 흙 위에만).

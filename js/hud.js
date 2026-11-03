@@ -70,7 +70,10 @@ class Hud {
       this.drawMoveBar(g, active);
       this.drawMarker(this.world, active, time);
       this.drawAimLine(this.world, active);
-      this.info.setText(`${active.player.name}${isAi ? ' (CPU)' : ''}   각도 ${Math.round(active.elevation)}°   파워 ${Math.round(power)}`);
+      // 차체 기울기: 포신 쪽(앞)이 들리면 +, 숙여지면 -
+      const tilt = Math.round(Phaser.Math.RadToDeg(-active.slope * active.facing));
+      const tiltLabel = tilt > 0 ? `+${tilt}` : `${tilt}`;
+      this.info.setText(`${active.player.name}${isAi ? ' (CPU)' : ''}   각도 ${Math.round(active.elevation)}°   기울기 ${tiltLabel}°   파워 ${Math.round(power)}`);
       this.weapons.setText(CONFIG.WEAPONS.map((w, i) => {
         const left = active.stock[i] === Infinity ? '∞' : active.stock[i];
         return `${i === weaponIndex ? '▶' : ''}${i + 1}.${w.name}(${left})`;

@@ -43,7 +43,7 @@ const CONFIG = {
     ELEV_MIN: 0,
     ELEV_MAX: 85,
     FEET: 13,          // 중심에서 좌우 접지점까지의 거리
-    MAX_CLIMB: 2,      // 1px 전진당 오를 수 있는 높이
+    MAX_CLIMB: 3,      // 1px 전진당 오를 수 있는 높이 (약 71°)
     CLEARANCE: 40,     // 지나가려면 앞쪽에 비어 있어야 하는 높이 (낮은 천장 판정)
     SAFE_FALL: 40,     // 이 높이까지는 낙하 피해 없음
     FALL_DAMAGE: 0.4,  // 초과 1px당 피해
