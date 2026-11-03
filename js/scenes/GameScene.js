@@ -9,9 +9,12 @@ class GameScene extends Phaser.Scene {
     addFixedBackground(this);
     this.terrain = new Terrain(this);
     const barrelInfo = this.registry.get('barrelInfo');
-    // 모드별 참가자: cpu = 1P vs CPU, 2p = 핫시트, 2v2 = 블루팀(사람 2명) vs 레드팀(CPU 2대)
-    const players = (this.mode === '2v2' ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
-      .map((p) => ({ ...p, ai: this.mode !== '2p' && p.team === 'red' }));
+    // 모드별 참가자
+    //   cpu = 1P vs CPU, 2p = 1:1 핫시트,
+    //   2v2 = 블루팀(사람 2명) vs 레드팀(CPU 2대), 2v2hot = 2:2 핫시트(4명 모두 사람)
+    const M = CONFIG.MODES[this.mode] || CONFIG.MODES.cpu;
+    const players = (M.team ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
+      .map((p) => ({ ...p, ai: M.redAi && p.team === 'red' }));
     this.randomizeSpawns(players);
     this.tanks = players.map((p) => new Tank(this, this.terrain, p, barrelInfo));
     this.hud = new Hud(this, this.tanks, this.terrain);
@@ -381,7 +384,7 @@ class GameScene extends Phaser.Scene {
     let color = 0xfbbf24;
     if (winnerTeam) {
       const winner = this.tanks.find((t) => t.player.team === winnerTeam);
-      const label = this.mode === '2v2' ? CONFIG.TEAMS[winnerTeam] : winner.player.name;
+      const label = this.tanks.length > 2 ? CONFIG.TEAMS[winnerTeam] : winner.player.name;
       message = `${label} 승리!`;
       color = winner.player.color;
     }

@@ -16,9 +16,13 @@ class TitleScene extends Phaser.Scene {
     const logo = this.add.image(W / 2, 200, 'logo').setScale(600 / logoSrc.width);
     this.tweens.add({ targets: logo, y: 190, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
-    this.addButton(W / 2, 418, '1P  vs  CPU', '혼자서 CPU와 1:1 대결', () => this.begin('cpu'));
-    this.addButton(W / 2, 496, '2P  핫시트', '한 키보드로 둘이 번갈아', () => this.begin('2p'));
-    this.addButton(W / 2, 574, '2:2  팀전', '블루팀 2명 vs CPU 2대', () => this.begin('2v2'));
+    // 2×2 배치: 위 줄 1:1, 아래 줄 2:2 / 왼쪽 CPU 대전, 오른쪽 핫시트
+    const colL = W / 2 - 200;
+    const colR = W / 2 + 200;
+    this.addButton(colL, 440, '1P  vs  CPU', '혼자서 CPU와 1:1 대결', () => this.begin('cpu'));
+    this.addButton(colR, 440, '1:1  핫시트', '한 키보드로 둘이 번갈아', () => this.begin('2p'));
+    this.addButton(colL, 530, '2:2  팀전', '블루팀 2명 vs CPU 2대', () => this.begin('2v2'));
+    this.addButton(colR, 530, '2:2  핫시트', '한 키보드로 넷이 번갈아', () => this.begin('2v2hot'));
 
     // 조작 안내 띠
     const keys = [['← →', '이동'], ['↑ ↓', '각도'], ['Space', '누르고 떼서 발사'], ['1 2 3', '무기'], ['드래그', '화면 이동']];

@@ -79,6 +79,13 @@ const CONFIG = {
     { name: '블루2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
     { name: '레드2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
   ],
+  // 게임 모드: team = 2:2 팀전 여부, redAi = 레드팀을 CPU가 조종
+  MODES: {
+    cpu:    { team: false, redAi: true },
+    '2p':   { team: false, redAi: false },
+    '2v2':  { team: true,  redAi: true },
+    '2v2hot': { team: true, redAi: false },
+  },
   // 시작 위치는 발판마다 한 대씩 무작위 (위 spawnX는 발판을 못 찾을 때만 쓰임)
   SPAWN: {
     MIN_PLATFORM: 120, // 이보다 좁은 발판에는 놓지 않는다 (px)
