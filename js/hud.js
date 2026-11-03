@@ -69,7 +69,7 @@ class Hud {
       this.drawPowerBar(g, active, power);
       this.drawMoveBar(g, active);
       this.drawMarker(this.world, active, time);
-      this.drawAimLine(this.world, active);
+      if (!isAi) this.drawGuide(this.world, active, power, wind);
       // 차체 기울기: 포신 쪽(앞)이 들리면 +, 숙여지면 -
       const tilt = Math.round(Phaser.Math.RadToDeg(-active.slope * active.facing));
       const tiltLabel = tilt > 0 ? `+${tilt}` : `${tilt}`;
@@ -157,12 +157,37 @@ class Hud {
     g.fillTriangle(tank.x - 12, y, tank.x + 12, y, tank.x, y + 16);
   }
 
-  drawAimLine(g, tank) {
-    const m = tank.muzzle();
-    g.lineStyle(3, 0xffffff, 0.75);
-    for (let i = 0; i < 4; i++) {
-      const a = 12 + i * 18;
-      g.lineBetween(m.x + m.dirX * a, m.y + m.dirY * a, m.x + m.dirX * (a + 9), m.y + m.dirY * (a + 9));
+  // 예상 탄도의 앞 GUIDE_RATIO만큼을 점선으로 그린다 (바람 포함).
+  // 충전 중이면 현재 파워, 아니면 지난번 파워(없으면 50) 기준.
+  drawGuide(g, tank, power, wind) {
+    const GUIDE_RATIO = 0.7;
+    const p = power > 0 ? power : (tank.lastPower ?? 50);
+    const s = makeShell(tank.muzzle(), p);
+    const pts = [s.x, s.y];
+    let hit = null;
+    let n = 0;
+    while (!hit) {
+      stepShell(s, wind);
+      hit = shellContact(s, this.terrain, this.tanks, tank);
+      if (++n % 6 === 0) pts.push(s.x, s.y);
+    }
+    pts.push(s.x, s.y);
+
+    const count = Math.max(2, Math.floor((pts.length / 2) * GUIDE_RATIO));
+    // 점 간격을 거리 기준으로 일정하게 찍는다. 끝으로 갈수록 흐려진다.
+    const GAP = 14;
+    let acc = 0;
+    for (let i = 1; i < count; i++) {
+      const x0 = pts[(i - 1) * 2], y0 = pts[(i - 1) * 2 + 1];
+      const x1 = pts[i * 2], y1 = pts[i * 2 + 1];
+      const seg = Math.hypot(x1 - x0, y1 - y0);
+      while (acc <= seg) {
+        const t = seg > 0 ? acc / seg : 0;
+        const alpha = 0.9 * (1 - (i / count) * 0.7);
+        g.fillStyle(0xffffff, alpha).fillCircle(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, 2.5);
+        acc += GAP;
+      }
+      acc -= seg;
     }
   }
 }

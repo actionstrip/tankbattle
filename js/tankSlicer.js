@@ -1,77 +1,55 @@
-// tanks.png는 2칸짜리 시트이고 포신이 몸체에 붙어 있다.
-// 런타임에 잘라 몸체 텍스처와, 수평으로 눕힌 포신 텍스처를 만든다. 원본은 바뀌지 않는다.
+// 탱크는 몸체(<color>_body.png, 1536×1024)와 공용 포신(po.png, 2172×724) 두 장으로 그린다.
+// 좌표는 모두 몸체 이미지 픽셀 기준이다. 포신의 크기·위치는 사용자가 맞춘 배치 시안과
+// 픽셀 대조로 구했다 (시안에서 몸체 0.5배, 포신 0.304배 → 포신은 몸체 대비 0.608배).
+// 런타임에 미리 축소한 캔버스 텍스처로 만든다 (축소 계단 현상 방지).
 const TANK_SHEET = {
-  CELL_W: 1086,
-  CELL_H: 724,
-  CELLS: { blue: 0, red: 1 },
-  SCALE: 0.25,               // 축소 시 계단 현상을 막기 위해 미리 줄여 둔다
-  ORIGIN: { x: 597, y: 695 }, // 궤도 바닥 중앙 (셀 좌표)
-  PIVOT: { x: 425, y: 268 },  // 포신 회전축 (셀 좌표)
-  MUZZLE: { x: 141, y: 80 },  // 총구 중심 (셀 좌표)
-  HEAD_LEN: 215,              // 총구에서 굵은 부분이 끝나는 거리
-  HEAD_HALF: 88,
-  TIP_PAD: 40,                // 총구 끝 너머까지 지워 외곽선이 남지 않게 한다
-  NECK_HALF: 54,
-  ERASE_TAIL: 62,             // 칼라를 몸체에 남기기 위해 지우지 않는 뿌리 쪽 길이
+  SCALE: 0.16,                 // 몸체 이미지 → 텍스처 축소 배율 (화면 크기는 CONFIG.TANK.SCALE을 한 번 더 곱함)
+  ORIGIN: { x: 765, y: 955 },  // 궤도 바닥 중앙 (몸체 좌표)
+  PO: {
+    SCALE: 0.608,              // 포신 이미지 → 몸체 좌표 배율
+    LENGTH: 2 / 3,             // 회전축~총구 길이 배율 (가운데 관을 잘라 내 줄임, 굵기·모양 유지)
+    TUBE_CUT_START: 900,       // 잘라 낼 관 구간 시작 x (관은 약 x 565~1550)
+    PIVOT: { x: 1864, y: 364 },  // 포신 이미지 안 회전축 (오른쪽 둥근 고리 중심)
+    MUZZLE: { x: 168, y: 362 },  // 포신 이미지 안 총구 끝 중심
+  },
+  // 포신 회전축이 놓이는 몸체 좌표 (포탑 앞쪽)
+  PIVOT: { x: 862, y: 306 },
+  COLORS: ['blue', 'red'],
 };
 
 function sliceTanks(scene) {
   const S = TANK_SHEET;
-  const sheet = scene.textures.get('tanks').getSourceImage();
-  const dx = S.PIVOT.x - S.MUZZLE.x;
-  const dy = S.PIVOT.y - S.MUZZLE.y;
-  const length = Math.hypot(dx, dy);
-  const baseAngle = Math.atan2(dy, dx);
+  const P = S.PO;
+  // 포신은 수평(총구가 왼쪽)으로 그려져 있으므로 회전 없이 축소만 한다.
+  const length = (P.PIVOT.x - P.MUZZLE.x) * P.SCALE * P.LENGTH; // 몸체 좌표 기준 회전축~총구 거리
 
-  // 포신 외곽선. 회전축 기준이며 -x가 총구 쪽이다.
-  const outline = (ctx, tail) => {
-    const tip = -length - S.TIP_PAD;
-    ctx.beginPath();
-    ctx.moveTo(tip, -S.HEAD_HALF);
-    ctx.lineTo(-length + S.HEAD_LEN, -S.HEAD_HALF);
-    ctx.lineTo(-length + S.HEAD_LEN + 16, -S.NECK_HALF);
-    ctx.lineTo(-tail, -S.NECK_HALF);
-    ctx.lineTo(-tail, S.NECK_HALF);
-    ctx.lineTo(-length + S.HEAD_LEN + 16, S.NECK_HALF);
-    ctx.lineTo(-length + S.HEAD_LEN, S.HEAD_HALF);
-    ctx.lineTo(tip, S.HEAD_HALF);
-    ctx.closePath();
-  };
-
-  for (const [name, cell] of Object.entries(S.CELLS)) {
-    const cellX = cell * S.CELL_W;
-
+  for (const name of S.COLORS) {
+    const bodyImg = scene.textures.get(`tank_${name}_body_src`).getSourceImage();
     const body = scene.textures.createCanvas(
-      `tank_${name}_body`, Math.ceil(S.CELL_W * S.SCALE), Math.ceil(S.CELL_H * S.SCALE),
+      `tank_${name}_body`, Math.ceil(bodyImg.width * S.SCALE), Math.ceil(bodyImg.height * S.SCALE),
     );
-    const bctx = body.context;
-    bctx.imageSmoothingQuality = 'high';
-    bctx.scale(S.SCALE, S.SCALE);
-    bctx.drawImage(sheet, cellX, 0, S.CELL_W, S.CELL_H, 0, 0, S.CELL_W, S.CELL_H);
-    bctx.translate(S.PIVOT.x, S.PIVOT.y);
-    bctx.rotate(baseAngle);
-    bctx.globalCompositeOperation = 'destination-out';
-    outline(bctx, S.ERASE_TAIL);
-    bctx.fill();
+    body.context.imageSmoothingQuality = 'high';
+    body.context.drawImage(bodyImg, 0, 0, body.width, body.height);
     body.refresh();
-
-    const pad = S.TIP_PAD + 2;
-    const barrelW = length + pad;
-    const barrelH = S.HEAD_HALF * 2 + pad;
-    const barrel = scene.textures.createCanvas(
-      `tank_${name}_barrel`, Math.ceil(barrelW * S.SCALE), Math.ceil(barrelH * S.SCALE),
-    );
-    const cctx = barrel.context;
-    cctx.imageSmoothingQuality = 'high';
-    cctx.scale(S.SCALE, S.SCALE);
-    cctx.translate(barrelW, barrelH / 2); // 회전축 = 텍스처 오른쪽 가운데
-    outline(cctx, 0);
-    cctx.clip();
-    cctx.rotate(-baseAngle);
-    cctx.translate(-S.PIVOT.x, -S.PIVOT.y);
-    cctx.drawImage(sheet, cellX, 0, S.CELL_W, S.CELL_H, 0, 0, S.CELL_W, S.CELL_H);
-    barrel.refresh();
   }
 
-  return { length, baseAngle };
+  // 길이 줄이기: 굵기가 일정한 가운데 관 부분을 잘라 내고 양쪽을 붙인다.
+  // (통째로 가로 축소하면 고리·총구가 납작해지므로)
+  const poImg = scene.textures.get('tank_po_src').getSourceImage();
+  const k = S.SCALE * P.SCALE;
+  const cutLen = Math.round((P.PIVOT.x - P.MUZZLE.x) * (1 - P.LENGTH));
+  const cutStart = P.TUBE_CUT_START;
+  const srcW = poImg.width - cutLen;               // 잘라 낸 뒤 포신 이미지 폭
+  const pivotX = P.PIVOT.x - cutLen;
+  const barrel = scene.textures.createCanvas('tank_barrel', Math.ceil(srcW * k), Math.ceil(poImg.height * k));
+  const bc = barrel.context;
+  bc.imageSmoothingQuality = 'high';
+  bc.scale(k, k);
+  bc.drawImage(poImg, 0, 0, cutStart, poImg.height, 0, 0, cutStart, poImg.height);
+  bc.drawImage(poImg, cutStart + cutLen, 0, poImg.width - cutStart - cutLen, poImg.height,
+    cutStart, 0, poImg.width - cutStart - cutLen, poImg.height);
+  barrel.refresh();
+
+  // origin: 포신 텍스처에서 회전축 위치 (0~1)
+  return { length, origin: { x: pivotX / srcW, y: P.PIVOT.y / poImg.height } };
 }

@@ -4,7 +4,10 @@ class PreloadScene extends Phaser.Scene {
   preload() {
     this.load.image('bg', CONFIG.STAGE.BG);
     this.load.image('ground', CONFIG.STAGE.GROUND);
-    this.load.image('tanks', 'images/tanks/tanks.png');
+    for (const name of TANK_SHEET.COLORS) {
+      this.load.image(`tank_${name}_body_src`, `images/tanks/${name}_body.png`);
+    }
+    this.load.image('tank_po_src', 'images/tanks/po.png');
 
     const bar = this.add.rectangle(CONFIG.GAME_W / 2, CONFIG.GAME_H / 2, 1, 16, 0xfbbf24);
     this.load.on('progress', (v) => { bar.width = 600 * v; });

@@ -29,10 +29,13 @@ class Tank {
       y: (S.PIVOT.y - S.ORIGIN.y) * S.SCALE,
     };
 
-    this.barrel = scene.add.image(this.pivot.x, this.pivot.y, `tank_${name}_barrel`).setOrigin(1, 0.5);
+    const bo = barrelInfo.origin;
+    this.barrel = scene.add.image(this.pivot.x, this.pivot.y, 'tank_barrel').setOrigin(bo.x, bo.y);
+    const src = scene.textures.get(`tank_${name}_body_src`).getSourceImage();
     this.body = scene.add.image(0, 0, `tank_${name}_body`)
-      .setOrigin(S.ORIGIN.x / S.CELL_W, S.ORIGIN.y / S.CELL_H);
-    this.rig = scene.add.container(0, 0, [this.barrel, this.body]);
+      .setOrigin(S.ORIGIN.x / src.width, S.ORIGIN.y / src.height);
+    // 배치 시안대로 포신(고리 부분)이 몸체 위에 그려진다.
+    this.rig = scene.add.container(0, 0, [this.body, this.barrel]);
     this.root = scene.add.container(this.x, this.y, [this.rig]).setDepth(CONFIG.DEPTH.TANK);
     this.updateSlope();
     this.syncView(1);
