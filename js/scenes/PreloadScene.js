@@ -9,6 +9,7 @@ class PreloadScene extends Phaser.Scene {
     }
     this.load.image('tank_po_src', 'images/tanks/po.png');
     this.load.image('arrow', 'images/etc/arrow.png');
+    this.load.image('logo', 'images/logo/logo.png');
 
     const bar = this.add.rectangle(CONFIG.GAME_W / 2, CONFIG.GAME_H / 2, 1, 16, 0xfbbf24);
     this.load.on('progress', (v) => { bar.width = 600 * v; });

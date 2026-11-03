@@ -69,17 +69,17 @@ const CONFIG = {
 
   // 양 끝 울타리(땅 레이어에 포함되어 단단함) 바로 안쪽에서 생성한다.
   PLAYERS: [
-    { name: '파랑', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
-    { name: '빨강', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
+    { name: '블루', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
+    { name: '레드', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
   ],
   // 2:2 팀전. 배열 순서가 턴 순서다 (팀 번갈아). 2대는 서로 다른 발판에 둔다.
   TEAM_PLAYERS: [
-    { name: '파랑1', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
-    { name: '빨강1', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
-    { name: '파랑2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
-    { name: '빨강2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
+    { name: '블루1', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
+    { name: '레드1', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
+    { name: '블루2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
+    { name: '레드2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
   ],
-  TEAMS: { blue: '파랑팀', red: '빨강팀' },
+  TEAMS: { blue: '블루팀', red: '레드팀' },
 
   SNOW: {
     COUNT: 160,          // 화면에 떠 있는 눈송이 수

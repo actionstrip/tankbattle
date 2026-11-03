@@ -9,7 +9,7 @@ class GameScene extends Phaser.Scene {
     addFixedBackground(this);
     this.terrain = new Terrain(this);
     const barrelInfo = this.registry.get('barrelInfo');
-    // 모드별 참가자: cpu = 1P vs CPU, 2p = 핫시트, 2v2 = 파랑팀(사람 2명) vs 빨강팀(CPU 2대)
+    // 모드별 참가자: cpu = 1P vs CPU, 2p = 핫시트, 2v2 = 블루팀(사람 2명) vs 레드팀(CPU 2대)
     const players = (this.mode === '2v2' ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
       .map((p) => ({ ...p, ai: this.mode !== '2p' && p.team === 'red' }));
     this.tanks = players.map((p) => new Tank(this, this.terrain, p, barrelInfo));
@@ -356,22 +356,41 @@ class GameScene extends Phaser.Scene {
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     const D = CONFIG.DEPTH.OVERLAY;
-    this.add.rectangle(0, 0, W, H, 0x0b1a2b, 0.6).setOrigin(0).setDepth(D).setScrollFactor(0);
+    this.add.rectangle(0, 0, W, H, 0x0b1a2b, 0.55).setOrigin(0).setDepth(D).setScrollFactor(0);
     let message = '무승부';
+    let color = 0xfbbf24;
     if (winnerTeam) {
-      const label = this.mode === '2v2'
-        ? CONFIG.TEAMS[winnerTeam]
-        : this.tanks.find((t) => t.player.team === winnerTeam).player.name;
+      const winner = this.tanks.find((t) => t.player.team === winnerTeam);
+      const label = this.mode === '2v2' ? CONFIG.TEAMS[winnerTeam] : winner.player.name;
       message = `${label} 승리!`;
+      color = winner.player.color;
     }
-    this.add.text(W / 2, H / 2 - 60, message, {
-      fontFamily: CONFIG.FONT, fontSize: '76px', fontStyle: 'bold', color: '#fde047',
-      stroke: '#0b1a2b', strokeThickness: 10,
-    }).setOrigin(0.5).setDepth(D + 1).setScrollFactor(0);
-    this.add.text(W / 2, H / 2 + 40, 'R: 다시 하기    T: 타이틀', {
-      fontFamily: CONFIG.FONT, fontSize: '28px', color: '#ffffff',
-      stroke: '#0b1a2b', strokeThickness: 6,
-    }).setOrigin(0.5).setDepth(D + 1).setScrollFactor(0);
+
+    // 결과 패널
+    const pw = 520;
+    const ph = 230;
+    const px = W / 2 - pw / 2;
+    const py = H / 2 - ph / 2;
+    const g = this.add.graphics().setDepth(D + 1).setScrollFactor(0);
+    uiPanel(g, px, py, pw, ph, { radius: 18, alpha: 0.92 });
+    g.lineStyle(3, color, 1).strokeRoundedRect(px, py, pw, ph, 18);
+    g.fillStyle(color, 1).fillRoundedRect(px, py, pw, 8, { tl: 18, tr: 18, bl: 0, br: 0 });
+
+    const fixed = (t) => t.setDepth(D + 2).setScrollFactor(0);
+    fixed(uiText(this, W / 2, py + 52, 16, { color: UI.MUTED })).setText('게임 종료').setOrigin(0.5);
+    fixed(uiText(this, W / 2, py + 102, 56, { color: UI.GOLD_CSS, stroke: 8 })).setText(message).setOrigin(0.5);
+
+    // 키 안내: [R] 다시 하기   [T] 타이틀
+    const keys = [['R', '다시 하기'], ['T', '타이틀']];
+    keys.forEach(([k, label], i) => {
+      const cx = W / 2 + (i === 0 ? -100 : 100);
+      const cy = py + ph - 46;
+      g.fillStyle(0x13263a, 1).fillRoundedRect(cx - 80, cy - 20, 160, 40, 10);
+      g.lineStyle(1.5, 0xffffff, 0.15).strokeRoundedRect(cx - 80, cy - 20, 160, 40, 10);
+      g.fillStyle(UI.GOLD, 1).fillRoundedRect(cx - 68, cy - 12, 24, 24, 6);
+      fixed(uiText(this, cx - 56, cy, 14, { color: '#0b1a2b' })).setText(k).setOrigin(0.5);
+      fixed(uiText(this, cx - 34, cy, 16)).setText(label).setOrigin(0, 0.5);
+    });
     this.input.keyboard.once('keydown-R', () => this.scene.restart({ mode: this.mode }));
     this.input.keyboard.once('keydown-T', () => this.scene.start('Title'));
   }
