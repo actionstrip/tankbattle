@@ -109,8 +109,9 @@ class GameScene extends Phaser.Scene {
   setupCameraDrag() {
     const cam = this.cameras.main;
     this.drag = null;
-    this.input.on('pointerdown', (p) => {
-      if (!this.canDragCamera) return;
+    this.input.on('pointerdown', (p, over) => {
+      // 버튼(무기 슬롯 등) 위를 누른 경우에는 화면을 끌지 않는다.
+      if (!this.canDragCamera || over.length > 0) return;
       this.drag = { x: p.x, scrollX: cam.scrollX };
       cam.panEffect?.reset(); // 턴 시작 카메라 이동 중이면 멈춘다
       cam.stopFollow();
@@ -221,7 +222,7 @@ class GameScene extends Phaser.Scene {
     tank.elevation = Phaser.Math.Clamp(tank.elevation, T.ELEV_MIN, T.ELEV_MAX);
 
     this.weaponKeys.forEach((key, i) => {
-      if (Phaser.Input.Keyboard.JustDown(key) && tank.stock[i] > 0) this.weaponIndex = i;
+      if (Phaser.Input.Keyboard.JustDown(key)) this.selectWeapon(i);
     });
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.space) && !tank.falling) {
@@ -399,19 +400,40 @@ class GameScene extends Phaser.Scene {
     fixed(uiText(this, W / 2, py + 52, 16, { color: UI.MUTED })).setText('게임 종료').setOrigin(0.5);
     fixed(uiText(this, W / 2, py + 102, 56, { color: UI.GOLD_CSS, stroke: 8 })).setText(message).setOrigin(0.5);
 
-    // 키 안내: [R] 다시 하기   [T] 타이틀
-    const keys = [['R', '다시 하기'], ['T', '타이틀']];
-    keys.forEach(([k, label], i) => {
+    // 버튼: [R] 다시 하기   [T] 타이틀 — 키보드와 마우스 클릭 모두 동작
+    let done = false;
+    const once = (fn) => () => { if (!done) { done = true; fn(); } };
+    const restart = once(() => this.scene.restart({ mode: this.mode }));
+    const toTitle = once(() => this.scene.start('Title'));
+    const buttons = [['R', '다시 하기', restart], ['T', '타이틀', toTitle]];
+    buttons.forEach(([k, label, action], i) => {
       const cx = W / 2 + (i === 0 ? -100 : 100);
       const cy = py + ph - 46;
-      g.fillStyle(0x13263a, 1).fillRoundedRect(cx - 80, cy - 20, 160, 40, 10);
-      g.lineStyle(1.5, 0xffffff, 0.15).strokeRoundedRect(cx - 80, cy - 20, 160, 40, 10);
-      g.fillStyle(UI.GOLD, 1).fillRoundedRect(cx - 68, cy - 12, 24, 24, 6);
+      const bg = this.add.graphics().setDepth(D + 1.5).setScrollFactor(0);
+      const draw = (hover) => {
+        bg.clear();
+        bg.fillStyle(hover ? 0x23405f : 0x13263a, 1).fillRoundedRect(cx - 80, cy - 20, 160, 40, 10);
+        bg.lineStyle(hover ? 2 : 1.5, hover ? UI.GOLD : 0xffffff, hover ? 1 : 0.15)
+          .strokeRoundedRect(cx - 80, cy - 20, 160, 40, 10);
+        bg.fillStyle(UI.GOLD, 1).fillRoundedRect(cx - 68, cy - 12, 24, 24, 6);
+      };
+      draw(false);
       fixed(uiText(this, cx - 56, cy, 14, { color: '#0b1a2b' })).setText(k).setOrigin(0.5);
       fixed(uiText(this, cx - 34, cy, 16)).setText(label).setOrigin(0, 0.5);
+      const zone = this.add.zone(cx, cy, 160, 40).setScrollFactor(0).setDepth(D + 3)
+        .setInteractive({ useHandCursor: true });
+      zone.on('pointerover', () => draw(true));
+      zone.on('pointerout', () => draw(false));
+      zone.on('pointerup', action);
     });
-    this.input.keyboard.once('keydown-R', () => this.scene.restart({ mode: this.mode }));
-    this.input.keyboard.once('keydown-T', () => this.scene.start('Title'));
+    this.input.keyboard.once('keydown-R', restart);
+    this.input.keyboard.once('keydown-T', toTitle);
+  }
+
+  // 무기 선택 (키보드 1·2·3 또는 무기 슬롯 클릭). 내 턴 조준 중에만, 남은 탄이 있을 때만.
+  selectWeapon(i) {
+    if (this.state !== 'aiming' || this.ai) return;
+    if (this.active.stock[i] > 0) this.weaponIndex = i;
   }
 
   // ---- 이벤트 ----

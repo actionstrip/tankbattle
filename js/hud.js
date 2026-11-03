@@ -110,11 +110,19 @@ class Hud {
     btext(P.x + 232, P.y + 40, 13, { color: UI.MUTED }).setText('파워');
 
     // 무기 슬롯 3칸
+    this.hoverSlot = -1;
     const gap = 8;
     const sw = (P.w - 36 - gap * 2) / 3;
     this.slots = CONFIG.WEAPONS.map((w, i) => {
       const sx = P.x + 18 + i * (sw + gap);
       const sy = P.y + 68;
+      // 클릭으로도 무기를 고를 수 있게 슬롯 위에 투명 영역을 둔다.
+      const zone = fixed(scene.add.zone(sx + sw / 2, sy + 19, sw, 38), D + 2)
+        .setInteractive({ useHandCursor: true });
+      zone.on('pointerdown', () => scene.selectWeapon(i));
+      zone.on('pointerover', () => { this.hoverSlot = i; });
+      zone.on('pointerout', () => { if (this.hoverSlot === i) this.hoverSlot = -1; });
+      this.bottomItems.push(zone);
       return {
         x: sx, y: sy, w: sw, h: 38,
         key: btext(sx + 17, sy + 19, 13).setOrigin(0.5).setText(`${i + 1}`),
@@ -188,7 +196,10 @@ class Hud {
     this.banner.setAlpha(0);
     this.bannerBg.setAlpha(0);
     this.bottomPanel.setVisible(false);
-    for (const t of this.bottomItems) t.setVisible(false);
+    for (const t of this.bottomItems) {
+      t.setVisible(false);
+      if (t.input) t.disableInteractive();
+    }
   }
 
   update({ active, wind, timeLeft, power, weaponIndex, isAi, time, shell }) {
@@ -295,7 +306,8 @@ class Hud {
       const selected = i === weaponIndex;
       const stock = tank.stock[i];
       const empty = stock <= 0;
-      g.fillStyle(selected ? 0x23405f : 0x13263a, 1).fillRoundedRect(s.x, s.y, s.w, s.h, 8);
+      const hover = !selected && !empty && !isAi && i === this.hoverSlot;
+      g.fillStyle(selected ? 0x23405f : hover ? 0x1b3349 : 0x13263a, 1).fillRoundedRect(s.x, s.y, s.w, s.h, 8);
       g.lineStyle(selected ? 2 : 1, selected ? UI.GOLD : 0xffffff, selected ? 1 : 0.12)
         .strokeRoundedRect(s.x, s.y, s.w, s.h, 8);
       g.fillStyle(selected ? UI.GOLD : 0x2c4560, 1).fillRoundedRect(s.x + 7, s.y + 9, 20, 20, 5);

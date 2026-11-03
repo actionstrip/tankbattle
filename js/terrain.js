@@ -211,7 +211,64 @@ class Terrain {
 
   // 열(column) 단위로 파낸다. 바닥은 평평한 사발 모양이고,
   // 구덩이 위로 얇게 남는 흙(처마)은 함께 걷어 내 공중에 뜬 흙이 생기지 않게 한다.
+  // 착탄점 주변의 빈 칸 방향(= 지형 표면의 바깥쪽 법선)을 구한다.
+  surfaceNormal(cx, cy, R = 12) {
+    let nx = 0;
+    let ny = 0;
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dy * dy > R * R) continue;
+        if (!this.isSolid(cx + dx, cy + dy)) { nx += dx; ny += dy; }
+      }
+    }
+    return { nx, ny };
+  }
+
   carve(cx, cy, r) {
+    // 발판 옆면(벽)에 맞았으면 열 단위 사발 대신 둥글게 판다.
+    // 열 단위로 파면 옆면에서는 위아래가 통째로 지워져 네모나게 잘려 보이기 때문.
+    const n = this.surfaceNormal(cx, cy);
+    if (Math.abs(n.nx) > Math.abs(n.ny) * 1.2) {
+      this.carveRound(cx, cy, r);
+      return;
+    }
+    this.carveBowl(cx, cy, r);
+  }
+
+  // 옆면 착탄: 원형으로 파고 가장자리에 그을음
+  carveRound(cx, cy, r) {
+    const { w, solid } = this;
+    const r2 = r * r;
+    const x0 = Math.max(0, Math.floor(cx - r));
+    const x1 = Math.min(w - 1, Math.ceil(cx + r));
+    const y0 = Math.max(0, Math.floor(cy - r));
+    const y1 = Math.min(this.h - 1, Math.ceil(cy + r));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 <= r2) solid[y * w + x] = 0;
+      }
+    }
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-atop';
+    const grad = ctx.createRadialGradient(cx, cy, r, cx, cy, r + 14);
+    grad.addColorStop(0, 'rgba(18, 9, 5, 0.75)');
+    grad.addColorStop(1, 'rgba(18, 9, 5, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r + 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    this.texture.refresh();
+    this.version++;
+  }
+
+  // 윗면 착탄: 열 단위 사발 모양
+  carveBowl(cx, cy, r) {
     const { w, h, solid } = this;
     const depth = r * 0.72;        // 폭발 중심 아래로 파이는 깊이
     const FLAT = 0.35;             // 중심에서 이 비율까지는 평평한 바닥, 바깥은 둥근 어깨
@@ -253,19 +310,28 @@ class Terrain {
     const STEP = 2;                                 // 열당 최대 높이 차 (약 63°, 등판 한계보다 완만)
     const ext = Math.round(r * 0.6);                // 폭발 범위 밖으로 깎을 수 있는 최대 폭
     const yTop = Math.max(0, Math.round(cy - r * 1.6));
-    const surf = (x) => {                           // 위쪽 한계부터 내려가며 첫 흙. 한계부터 흙이면 절벽(-1)
+    // 표면은 구덩이 바닥 근처까지만 찾는다. 그 아래(발판이 뚫려 보이는 먼 땅)를 기준으로 삼으면
+    // 발판 전체가 세로로 통째로 깎여 나가기 때문.
+    const yLow = Math.min(h - 1, Math.round(cy + depth + 6));
+    const surf = (x) => {                           // -1: 위쪽 한계부터 흙(절벽), null: 구덩이 깊이 안에 흙 없음(뚫림)
       if (solid[yTop * w + x] === 1) return -1;
-      for (let y = yTop + 1; y < h; y++) if (solid[y * w + x] === 1) return y;
-      return h;
+      for (let y = yTop + 1; y <= yLow; y++) if (solid[y * w + x] === 1) return y;
+      return null;
     };
     const cxi = Math.round(Phaser.Math.Clamp(cx, 0, w - 1));
     for (const dir of [1, -1]) {
       let prev = surf(cxi);
-      if (prev < 0) continue;
+      if (prev === -1) continue;
       const end = dir > 0 ? Math.min(w - 1, x1 + ext) : Math.max(0, x0 - ext);
       for (let x = cxi + dir; dir > 0 ? x <= end : x >= end; x += dir) {
         let s = surf(x);
-        if (s < 0) break;
+        if (s === -1) break;
+        // 뚫린 열이거나 기준(prev)이 뚫린 열이면 깎지 않고 기준만 갱신
+        if (s === null || prev === null) {
+          if (s === null && (dir > 0 ? x > x1 : x < x0)) break;
+          prev = s;
+          continue;
+        }
         const limit = prev - STEP;
         if (s < limit) {
           for (let y = s; y < limit; y++) solid[y * w + x] = 0;
