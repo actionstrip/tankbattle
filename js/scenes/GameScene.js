@@ -36,6 +36,7 @@ class GameScene extends Phaser.Scene {
 
     this.debug = new URLSearchParams(location.search).has('debug');
     if (this.debug) this.setupDebug();
+    this.setupCameraDrag();
 
     cam.centerOn(this.tanks[0].x, CONFIG.WORLD_H / 2);
     this.startTurn();
@@ -51,15 +52,48 @@ class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const half = CONFIG.GAME_W / 2;
     const x = Phaser.Math.Clamp(tank.x, half, CONFIG.WORLD_W - half);
+    this.drag = null;
+    this.cameraFree = false;
     cam.stopFollow();
     cam.pan(x, CONFIG.WORLD_H / 2, 700, 'Sine.easeInOut', true, (c, progress) => {
-      if (progress === 1 && this.active === tank && this.state === 'aiming') {
-        cam.startFollow(tank.root, false, 0.15, 0.15);
-      }
+      if (progress === 1 && this.active === tank && this.state === 'aiming') this.followTank(tank);
     });
   }
 
+  // 내 턴에 쏘기 전(조준·충전 중)에는 화면을 끌어서 맵을 둘러볼 수 있다.
+  get canDragCamera() {
+    return (this.state === 'aiming' || this.state === 'charging') && !this.ai;
+  }
+
+  setupCameraDrag() {
+    const cam = this.cameras.main;
+    this.drag = null;
+    this.input.on('pointerdown', (p) => {
+      if (!this.canDragCamera) return;
+      this.drag = { x: p.x, scrollX: cam.scrollX };
+      cam.panEffect?.reset(); // 턴 시작 카메라 이동 중이면 멈춘다
+      cam.stopFollow();
+    });
+    this.input.on('pointermove', (p) => {
+      if (!this.drag || !p.isDown || !this.canDragCamera) return;
+      const maxX = CONFIG.WORLD_W - CONFIG.GAME_W;
+      cam.scrollX = Phaser.Math.Clamp(this.drag.scrollX - (p.x - this.drag.x), 0, maxX);
+      this.cameraFree = true;
+    });
+    const end = () => { this.drag = null; };
+    this.input.on('pointerup', end);
+    this.input.on('pointerupoutside', end);
+  }
+
+  // 둘러보던 화면을 다시 탱크로 붙인다.
+  followTank(tank) {
+    this.cameraFree = false;
+    this.cameras.main.startFollow(tank.root, false, 0.15, 0.15);
+  }
+
   followShell(shell) {
+    this.drag = null;
+    this.cameraFree = false;
     this.followedShell = shell;
     const cam = this.cameras.main;
     cam.stopFollow();
@@ -120,8 +154,11 @@ class GameScene extends Phaser.Scene {
     this.timeLeft -= dt;
     if (this.timeLeft <= 0) { this.beginResolve(); return; }
 
-    if (this.cursors.left.isDown) tank.move(-1, dt);
-    else if (this.cursors.right.isDown) tank.move(1, dt);
+    let moved = false;
+    if (this.cursors.left.isDown) moved = tank.move(-1, dt);
+    else if (this.cursors.right.isDown) moved = tank.move(1, dt);
+    // 둘러보다가 탱크를 움직이면 화면이 다시 탱크를 따라간다.
+    if (moved && this.cameraFree && !this.drag) this.followTank(tank);
 
     const T = CONFIG.TANK;
     if (this.cursors.up.isDown) tank.elevation += T.AIM_SPEED * dt;
@@ -230,22 +267,33 @@ class GameScene extends Phaser.Scene {
     s.sprite.destroy();
     s.trail.stop();
     this.time.delayedCall(500, () => s.trail.destroy());
-    if (hit !== 'out') this.explode(s.x, s.y, s.weapon);
+    if (hit !== 'out') this.explode(s.x, s.y, s.weapon, Math.hypot(s.vx, s.vy));
     // 따라가던 포탄이 끝나면 아직 날고 있는 다른 포탄으로 넘어간다.
     if (this.followedShell === s) this.followShell(this.shells[0] || null);
   }
 
-  explode(x, y, weapon) {
-    this.terrain.carve(x, y, weapon.radius);
+  // speed: 착탄 순간 속도. 빠를수록 구덩이가 크고 데미지가 세다.
+  explode(x, y, weapon, speed) {
+    const P = CONFIG.PHYSICS;
+    let scale = 1;
+    if (speed !== undefined) {
+      const k = Phaser.Math.Clamp(
+        (speed - P.IMPACT_SPEED_MIN) / (P.IMPACT_SPEED_MAX - P.IMPACT_SPEED_MIN), 0, 1);
+      scale = P.IMPACT_SCALE_MIN + (P.IMPACT_SCALE_MAX - P.IMPACT_SCALE_MIN) * k;
+    }
+    const radius = weapon.radius * scale;
+    const damage = weapon.damage * scale;
+
+    this.terrain.carve(x, y, radius);
     for (const t of this.tanks) {
       if (t.dead) continue;
       const d = Math.hypot(t.x - x, t.y - CONFIG.TANK.HIT_CENTER_Y - y);
       const edge = Math.max(0, d - CONFIG.TANK.BODY_RADIUS);
-      if (edge < weapon.radius) {
-        t.damage(Math.round(weapon.damage * (1 - edge / weapon.radius)));
+      if (edge < radius) {
+        t.damage(Math.round(damage * (1 - edge / radius)));
       }
     }
-    this.explosionFx(x, y, weapon.radius);
+    this.explosionFx(x, y, radius);
   }
 
   beginResolve() {

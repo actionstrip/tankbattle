@@ -189,35 +189,59 @@ class Terrain {
 
   // ---- 변형 ----
 
+  // 열(column) 단위로 파낸다. 바닥은 평평한 사발 모양이고,
+  // 구덩이 위로 얇게 남는 흙(처마)은 함께 걷어 내 공중에 뜬 흙이 생기지 않게 한다.
   carve(cx, cy, r) {
-    const r2 = r * r;
+    const { w, h, solid } = this;
+    const depth = r * 0.72;        // 폭발 중심 아래로 파이는 깊이
+    const p = 2.6;                 // 클수록 바닥이 평평하고 벽이 가파르다
+    const lipMax = r * 1.1;        // 이 두께 이하의 처마만 걷어 낸다 (두꺼운 절벽은 남김)
+    const ph1 = Math.random() * Math.PI * 2;
+    const ph2 = Math.random() * Math.PI * 2;
     const x0 = Math.max(0, Math.floor(cx - r));
-    const x1 = Math.min(this.w - 1, Math.ceil(cx + r));
-    const y0 = Math.max(0, Math.floor(cy - r));
-    const y1 = Math.min(this.h - 1, Math.ceil(cy + r));
-    for (let y = y0; y <= y1; y++) {
-      for (let x = x0; x <= x1; x++) {
-        if ((x - cx) ** 2 + (y - cy) ** 2 <= r2) this.solid[y * this.w + x] = 0;
-      }
-    }
+    const x1 = Math.min(w - 1, Math.ceil(cx + r));
 
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
+    const bottom = [];
+    for (let x = x0; x <= x1; x++) {
+      const t = Math.min(1, Math.abs(x - cx) / r);
+      // 바닥선에 약간의 울퉁불퉁함을 준다 (가장자리로 갈수록 0).
+      const wobble = (Math.sin(x * 0.11 + ph1) * 0.6 + Math.sin(x * 0.27 + ph2) * 0.4) * r * 0.06 * (1 - t);
+      const yb = Math.min(h - 1, Math.round(cy + depth * Math.pow(1 - Math.pow(t, p), 1 / p) + wobble));
+      const half = Math.sqrt(Math.max(0, 1 - t * t)) * r * 0.85;
+      let yt = Math.max(0, Math.round(cy - half));
 
-    // 남은 흙 가장자리에만 그을음을 입힌다.
+      // 위쪽 처마: 폭발 범위 위로 이어진 흙 덩어리 두께를 재서 얇으면 같이 걷어 낸다.
+      let y = yt - 1;
+      while (y >= 0 && solid[y * w + x] === 1 && yt - y <= lipMax) y--;
+      if (y < 0 || solid[y * w + x] === 0) yt = y + 1;
+
+      if (yb >= yt) {
+        for (let yy = yt; yy <= yb; yy++) solid[yy * w + x] = 0;
+        ctx.fillRect(x, yt, 1, yb - yt + 1);
+      }
+      bottom.push(x, yb);
+    }
+
+    // 파인 바닥을 따라 그을음을 입힌다 (남은 흙 위에만).
     ctx.globalCompositeOperation = 'source-atop';
-    const rim = r + 14;
-    const grad = ctx.createRadialGradient(cx, cy, r, cx, cy, rim);
-    grad.addColorStop(0, 'rgba(18, 9, 5, 0.85)');
-    grad.addColorStop(1, 'rgba(18, 9, 5, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(cx, cy, rim, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const strokeBottom = (width, color, blur) => {
+      ctx.filter = blur ? `blur(${blur}px)` : 'none';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      for (let k = 0; k < bottom.length; k += 2) {
+        if (k === 0) ctx.moveTo(bottom[k], bottom[k + 1]);
+        else ctx.lineTo(bottom[k], bottom[k + 1]);
+      }
+      ctx.stroke();
+    };
+    strokeBottom(28, 'rgba(18, 9, 5, 0.45)', 6);
+    strokeBottom(10, 'rgba(18, 9, 5, 0.75)', 2);
     ctx.restore();
 
     this.texture.refresh();

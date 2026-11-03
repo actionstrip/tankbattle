@@ -27,7 +27,7 @@ class Hud {
     this.info = text(W / 2, H - 104, 20, 0.5);
     this.weapons = text(W / 2, H - 34, 18, 0.5);
     this.help = text(16, H - 30, 14);
-    this.help.setText('←→ 이동  ↑↓ 각도  Space 충전/발사  1·2·3 무기').setAlpha(0.85);
+    this.help.setText('←→ 이동  ↑↓ 각도  Space 충전/발사  1·2·3 무기  드래그 화면 이동').setAlpha(0.85);
 
     // 미니맵: 지형 캔버스를 1/10로 축소해 그린다.
     this.mini = { w: 256, h: 77, x: W - 16 - 256, y: H - 16 - 77 };

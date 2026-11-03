@@ -22,7 +22,13 @@ const CONFIG = {
   PHYSICS: {
     GRAVITY: 420,        // px/s²
     POWER_TO_SPEED: 10.5, // 파워 100 = 1050 px/s (최대 사거리 약 2600px)
-    WIND_ACCEL: 5,       // 바람 1당 px/s²
+    IMPACT_SPEED_MIN: 300,  // 착탄 속도가 이 이하면 폭발 강도 최소
+    IMPACT_SPEED_MAX: 1200, // 이 이상이면 최대 (파워 100 발사 1050px/s + 낙하 가속)
+    IMPACT_SCALE_MIN: 0.7,  // 구덩이 반경·데미지 배율
+    IMPACT_SCALE_MAX: 1.3,
+    // 바람 1당 px/s². 최대 역풍에서 60° 풀파워로 쏘면 제자리로 돌아오도록 맞춘 값:
+    // 평지 기준 착지 x = 0 이 되는 조건은 a = g / tan(60°) = 420 / 1.732 ≈ 242.5 → 바람 10으로 나눔.
+    WIND_ACCEL: 24.25,
     WIND_MAX: 10,
     STEP: 1 / 240,       // 탄 적분 간격 (최고 속도에서 스텝당 5px 이하)
     MAX_FLIGHT: 12,      // 초
