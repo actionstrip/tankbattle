@@ -8,7 +8,7 @@ const CONFIG = {
   FONT: '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif',
 
   STAGE: {
-    BG: 'images/background/stage1_bg.png',         // 화면에 고정
+    BG: 'images/background/stage1_bg.jpg',         // 땅보다 느리게 스크롤 (시차)
     GROUND: 'images/background/stage1_ground.png', // 월드 폭에 맞춰 확대, 하단 정렬
   },
 
