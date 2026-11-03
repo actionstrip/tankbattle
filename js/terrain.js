@@ -57,6 +57,26 @@ class Terrain {
     return null;
   }
 
+  // 위에서 내려다본 표면이 끊기지 않고 이어지는 구간(발판)들을 찾는다.
+  // 이웃 열과 표면 높이 차가 maxStep 이하면 같은 발판으로 본다. [{x0, x1}] (양 끝 포함)
+  findPlatforms(minWidth, maxStep = 12, margin = 20) {
+    const out = [];
+    let start = -1;
+    let prev = null;
+    const close = (end) => {
+      if (start >= 0 && end - start + 1 >= minWidth) out.push({ x0: start, x1: end });
+      start = -1;
+    };
+    for (let x = margin; x < this.w - margin; x++) {
+      const y = this.surfaceY(x, 0);
+      if (y === null || (prev !== null && Math.abs(y - prev) > maxStep)) close(x - 1);
+      if (y !== null && start < 0) start = x;
+      prev = y;
+    }
+    close(this.w - margin - 1);
+    return out;
+  }
+
   // ---- 연결 요소 탐색 (4방향) ----
 
   // queue[0..tail)에 시드가 들어 있고 mark가 이미 찍혀 있어야 한다. 새 tail을 돌려준다.

@@ -79,6 +79,12 @@ const CONFIG = {
     { name: '블루2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
     { name: '레드2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
   ],
+  // 시작 위치는 발판마다 한 대씩 무작위 (위 spawnX는 발판을 못 찾을 때만 쓰임)
+  SPAWN: {
+    MIN_PLATFORM: 120, // 이보다 좁은 발판에는 놓지 않는다 (px)
+    EDGE: 45,          // 발판 끝에서 이만큼 안쪽에 놓는다
+    MIN_GAP: 110,      // 같은 발판에 둘 이상 놓아야 할 때 최소 간격
+  },
   TEAMS: { blue: '블루팀', red: '레드팀' },
 
   SNOW: {

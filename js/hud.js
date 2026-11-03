@@ -150,6 +150,9 @@ class Hud {
     this.mini.y = mp.y + mp.h - 8 - this.mini.h;
     uiPanel(this.panels, mp.x, mp.y, mp.w, mp.h);
     text(mp.x + 16, mp.y + 10, 13, { color: UI.MUTED }).setText('미니맵');
+    // FPS 표시 (미니맵 패널 제목줄 오른쪽). 0.5초마다 갱신.
+    this.fps = text(mp.x + mp.w - 14, mp.y + 10, 13).setOrigin(1, 0);
+    this.fpsAt = 0;
     if (scene.textures.exists('minimap')) scene.textures.remove('minimap');
     this.miniTex = scene.textures.createCanvas('minimap', this.mini.w, this.mini.h);
     fixed(scene.add.image(this.mini.x, this.mini.y, 'minimap').setOrigin(0), D + 0.2);
@@ -194,6 +197,11 @@ class Hud {
     this.world.clear();
     this.arrow.setVisible(false);
 
+    if (time - this.fpsAt >= 500) {
+      this.fpsAt = time;
+      const fps = Math.round(this.scene.game.loop.actualFps);
+      this.fps.setText(`${fps} FPS`).setColor(fps >= 50 ? '#4ade80' : fps >= 30 ? UI.GOLD_CSS : UI.DANGER);
+    }
     this.drawTeamCards(g);
     this.drawTimer(g, timeLeft);
     this.drawWind(g, wind);
