@@ -89,28 +89,15 @@ class GameScene extends Phaser.Scene {
       cam.scrollX = Phaser.Math.Clamp(this.drag.scrollX - (p.x - this.drag.x), 0, maxX);
       this.cameraFree = true;
     });
-    // 손을 떼면 내 탱크 쪽으로 감속하며(ease-out) 돌아간다.
+    // 손을 떼도 둘러보던 화면에 그대로 머문다. 발사하면 포탄을 부드럽게 따라가고(followShell),
+    // 탱크를 움직이면 다시 탱크를 따라간다. 끌지 않고 누르기만 했으면 탱크 추적을 되살린다.
     const end = () => {
       if (!this.drag) return;
       this.drag = null;
-      if (this.canDragCamera) this.returnToTank(this.active);
+      if (!this.cameraFree && this.canDragCamera) this.followTank(this.active);
     };
     this.input.on('pointerup', end);
     this.input.on('pointerupoutside', end);
-  }
-
-  returnToTank(tank) {
-    const cam = this.cameras.main;
-    const half = CONFIG.GAME_W / 2;
-    const x = Phaser.Math.Clamp(tank.x, half, CONFIG.WORLD_W - half);
-    const dist = Math.abs(cam.midPoint.x - x);
-    this.cameraFree = false;
-    cam.stopFollow();
-    // 멀리 있을수록 조금 더 오래 (250~800ms)
-    const duration = Phaser.Math.Clamp(dist * 0.8, 250, 800);
-    cam.pan(x, CONFIG.WORLD_H / 2, duration, 'Cubic.easeOut', true, (c, progress) => {
-      if (progress === 1 && this.active === tank && !this.drag && this.canDragCamera) this.followTank(tank);
-    });
   }
 
   // 둘러보던 화면을 다시 탱크로 붙인다.
