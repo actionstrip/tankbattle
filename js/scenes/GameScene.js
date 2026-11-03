@@ -14,6 +14,7 @@ class GameScene extends Phaser.Scene {
       .map((p) => ({ ...p, ai: this.mode !== '2p' && p.team === 'red' }));
     this.tanks = players.map((p) => new Tank(this, this.terrain, p, barrelInfo));
     this.hud = new Hud(this, this.tanks, this.terrain);
+    this.snow = new Snow(this);
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, CONFIG.WORLD_W, CONFIG.WORLD_H);
@@ -168,6 +169,7 @@ class GameScene extends Phaser.Scene {
       default: break;
     }
 
+    this.snow.update(dt, this.wind, time);
     this.hud.update({
       active: this.state === 'gameover' ? null : this.active,
       wind: this.wind,

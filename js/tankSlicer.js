@@ -53,3 +53,39 @@ function sliceTanks(scene) {
   // origin: 포신 텍스처에서 회전축 위치 (0~1)
   return { length, origin: { x: pivotX / srcW, y: P.PIVOT.y / poImg.height } };
 }
+
+// arrow.png는 회전하는 화살표 5칸이 가로로 이어진 시트다 (칸 폭이 정수로 나뉘지 않음).
+// 투명한 세로 틈을 찾아 칸을 나누고 프레임으로 등록한다. 마지막 칸은 첫 칸과 같은 앞면이라
+// 반복 재생 시 앞면이 두 번 연속되지 않도록 뺀다.
+function sliceArrow(scene) {
+  const tex = scene.textures.get('arrow');
+  const img = tex.getSourceImage();
+  const c = document.createElement('canvas');
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, img.width, img.height).data;
+  const filled = (x) => {
+    for (let y = 0; y < img.height; y++) if (d[(y * img.width + x) * 4 + 3] > 16) return true;
+    return false;
+  };
+  const runs = [];
+  let start = -1;
+  for (let x = 0; x <= img.width; x++) {
+    const f = x < img.width && filled(x);
+    if (f && start < 0) start = x;
+    if (!f && start >= 0) { runs.push([start, x]); start = -1; }
+  }
+  // 칸 폭을 가장 넓은 칸에 맞춰 중심 정렬해야 회전할 때 좌우로 흔들리지 않는다.
+  const maxW = Math.max(...runs.map(([a, b]) => b - a));
+  const names = [];
+  runs.slice(0, Math.max(1, runs.length - 1)).forEach(([a, b], i) => {
+    const cx = (a + b) / 2;
+    const x0 = Math.max(0, Math.round(cx - maxW / 2));
+    const w = Math.min(maxW, img.width - x0);
+    tex.add(`f${i}`, 0, x0, 0, w, img.height);
+    names.push(`f${i}`);
+  });
+  return names;
+}

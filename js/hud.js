@@ -25,6 +25,12 @@ class Hud {
     this.names[0].setText(label('blue'));
     this.names[1].setText(label('red'));
 
+    // 조종 중인 탱크 표시 화살표 (원점: 아래 꼭짓점)
+    this.arrowFrames = scene.registry.get('arrowFrames');
+    this.arrow = scene.add.image(0, 0, 'arrow', this.arrowFrames[0])
+      .setOrigin(0.5, 1).setScale(CONFIG.TANK.MARKER_SCALE)
+      .setDepth(CONFIG.DEPTH.WORLD_UI).setVisible(false);
+
     // 팀전에서는 같은 색 탱크를 구분하도록 탱크 아래에 이름표를 단다.
     this.tags = this.teamMode ? tanks.map((t) => scene.add.text(0, 0, t.player.name, {
       fontFamily: CONFIG.FONT, fontSize: '14px', fontStyle: 'bold',
@@ -62,6 +68,7 @@ class Hud {
     const W = CONFIG.GAME_W;
     g.clear();
     this.world.clear();
+    this.arrow.setVisible(false);
 
     this.timer.setText(`${Math.ceil(Math.max(0, timeLeft))}`);
     this.timer.setColor(timeLeft <= 5 ? '#ff6b6b' : '#ffffff');
@@ -81,7 +88,7 @@ class Hud {
     if (active && !active.dead) {
       this.drawPowerBar(g, active, power);
       this.drawMoveBar(g, active);
-      this.drawMarker(this.world, active, time);
+      this.drawMarker(active, time);
       if (!isAi) this.drawGuide(this.world, active, power, wind);
       // 차체 기울기: 포신 쪽(앞)이 들리면 +, 숙여지면 -
       const tilt = Math.round(Phaser.Math.RadToDeg(-active.slope * active.facing));
@@ -163,11 +170,17 @@ class Hud {
     g.fillStyle(0xfde047, 1).fillTriangle(x, 4, x - 10, 20, x + 10, 20);
   }
 
-  drawMarker(g, tank, time) {
-    const bob = Math.sin(time / 180) * 5;
-    const y = tank.y - CONFIG.TANK.MARKER_Y + bob;
-    g.fillStyle(0xfde047, 1);
-    g.fillTriangle(tank.x - 12, y, tank.x + 12, y, tank.x, y + 16);
+  // 조종 중인 탱크 위 화살표 (arrow.png 회전 프레임을 돌려 가며 표시).
+  // 높이는 포신을 90°로 세웠을 때 총구 끝보다 MARKER_GAP 위로 잡아 부딪히지 않게 한다.
+  drawMarker(tank, time) {
+    const M = CONFIG.TANK;
+    const s = tank.rigScale;
+    const barrelTop = -tank.pivot.y * s + tank.barrelLength * s; // 탱크 바닥에서 세운 총구 끝까지
+    const bob = (Math.sin(time / 180) + 1) * 0.5 * M.MARKER_BOB;   // 0 ~ BOB (아래로 내려와도 간격 유지)
+    const frames = this.arrowFrames;
+    const frame = frames[Math.floor(time / M.MARKER_FRAME_MS) % frames.length];
+    this.arrow.setFrame(frame).setVisible(true)
+      .setPosition(tank.x, tank.y - barrelTop - M.MARKER_GAP - bob);
   }
 
   // 예상 탄도의 앞 GUIDE_RATIO만큼을 점선으로 그린다 (바람 포함).

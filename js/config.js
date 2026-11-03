@@ -51,7 +51,10 @@ const CONFIG = {
     HIT_RY: 28,
     HIT_CENTER_Y: 26,
     BODY_RADIUS: 22,   // 폭발 거리 계산 시 빼는 몸체 반경
-    MARKER_Y: 92,      // 턴 표시 화살표 높이
+    MARKER_GAP: 10,      // 포신을 90°로 세웠을 때 총구 끝과 화살표 사이 간격 (px)
+    MARKER_BOB: 6,       // 화살표가 위아래로 움직이는 폭 (px)
+    MARKER_SCALE: 0.45,  // arrow.png 한 칸(약 58×57) 표시 배율
+    MARKER_FRAME_MS: 110, // 회전 프레임 간격
   },
 
   TURN_SECONDS: 30,
@@ -78,5 +81,14 @@ const CONFIG = {
   ],
   TEAMS: { blue: '파랑팀', red: '빨강팀' },
 
-  DEPTH: { BACK: 0, TERRAIN: 5, TANK: 10, WORLD_UI: 15, SHELL: 20, FX: 30, HUD: 100, OVERLAY: 200 },
+  SNOW: {
+    COUNT: 160,          // 화면에 떠 있는 눈송이 수
+    SIZE: [1.5, 4],      // 반지름 (먼 것 ~ 가까운 것)
+    FALL: [35, 95],      // 낙하 속도 px/s (먼 것 ~ 가까운 것)
+    WIND_SPEED: 16,      // 바람 1당 옆으로 날리는 속도 px/s (가까운 눈 기준)
+    WIND_EASE: 0.8,      // 바람이 바뀔 때 따라가는 시간 상수 (초)
+    SWAY: 14,            // 좌우 하늘거림 폭 px/s
+  },
+
+  DEPTH: { BACK: 0, TERRAIN: 5, TANK: 10, WORLD_UI: 15, SHELL: 20, FX: 30, SNOW: 40, HUD: 100, OVERLAY: 200 },
 };

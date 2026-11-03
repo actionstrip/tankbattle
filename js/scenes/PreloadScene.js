@@ -8,6 +8,7 @@ class PreloadScene extends Phaser.Scene {
       this.load.image(`tank_${name}_body_src`, `images/tanks/${name}_body.png`);
     }
     this.load.image('tank_po_src', 'images/tanks/po.png');
+    this.load.image('arrow', 'images/etc/arrow.png');
 
     const bar = this.add.rectangle(CONFIG.GAME_W / 2, CONFIG.GAME_H / 2, 1, 16, 0xfbbf24);
     this.load.on('progress', (v) => { bar.width = 600 * v; });
@@ -15,6 +16,7 @@ class PreloadScene extends Phaser.Scene {
 
   create() {
     this.registry.set('barrelInfo', sliceTanks(this));
+    this.registry.set('arrowFrames', sliceArrow(this));
 
     const dot = this.textures.createCanvas('dot', 32, 32);
     const grad = dot.context.createRadialGradient(16, 16, 1, 16, 16, 16);
