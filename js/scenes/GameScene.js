@@ -25,7 +25,6 @@ class GameScene extends Phaser.Scene {
     this.state = 'idle';
     this.activeIndex = 1; // startTurn이 먼저 넘기므로 파랑부터 시작
     this.shells = [];
-    this.chunks = [];
     this.followedShell = null;
     this.stepAcc = 0;
     this.wind = 0;
@@ -86,8 +85,6 @@ class GameScene extends Phaser.Scene {
 
   update(time, delta) {
     const dt = Math.min(delta, 50) / 1000;
-    for (const c of this.chunks) c.update(dt, this.tanks);
-    this.chunks = this.chunks.filter((c) => !c.done);
     for (const t of this.tanks) t.update(dt);
 
     // 조준 중에 맵 아래로 떨어지는 등으로 탱크가 죽으면 쏘지 않고 바로 정산한다.
@@ -112,7 +109,6 @@ class GameScene extends Phaser.Scene {
       isAi: this.isAiTurn,
       time,
       shell: this.followedShell,
-      chunks: this.chunks,
     });
     if (this.debug) this.updateDebug();
   }
@@ -226,7 +222,6 @@ class GameScene extends Phaser.Scene {
     if (!this.shells.length) {
       this.stepAcc = 0;
       this.followShell(null);
-      this.settleTerrain();
       this.beginResolve();
     }
   }
@@ -253,17 +248,6 @@ class GameScene extends Phaser.Scene {
     this.explosionFx(x, y, weapon.radius);
   }
 
-  // 폭발 묶음이 끝난 뒤, 고정점과 끊긴 땅을 떨어뜨린다.
-  settleTerrain() {
-    const t0 = performance.now();
-    const pieces = this.terrain.settle();
-    this.lastSettleMs = performance.now() - t0;
-    for (const p of pieces) {
-      if (p.debris) this.debrisFx(p.x + p.w / 2, p.y + p.h / 2);
-      else this.chunks.push(new FallingChunk(this, this.terrain, p));
-    }
-  }
-
   beginResolve() {
     this.resolveWait = 0.7;
     this.state = 'resolving';
@@ -272,7 +256,7 @@ class GameScene extends Phaser.Scene {
   updateResolving(dt) {
     this.resolveWait -= dt;
     if (this.resolveWait > 0) return;
-    if (this.chunks.length || this.tanks.some((t) => t.falling)) return;
+    if (this.tanks.some((t) => t.falling)) return;
 
     const alive = this.tanks.filter((t) => !t.dead);
     if (alive.length < 2) this.endGame(alive[0] || null);
@@ -338,13 +322,6 @@ class GameScene extends Phaser.Scene {
     this.cameras.main.shake(180, Math.min(0.012, radius / 6000));
   }
 
-  debrisFx(x, y) {
-    this.burst(x, y, {
-      speed: { min: 30, max: 140 }, lifespan: 600, gravityY: 500,
-      scale: { start: 0.35, end: 0 }, tint: [0x8b5a2b, 0x6b4a2f, 0x84cc16],
-    }, 10);
-  }
-
   muzzleFlash(m) {
     const flash = this.add.image(m.x, m.y, 'dot').setDepth(CONFIG.DEPTH.FX).setTint(0xfff1a8)
       .setBlendMode(Phaser.BlendModes.ADD).setScale(1.6);
@@ -353,7 +330,7 @@ class GameScene extends Phaser.Scene {
     });
   }
 
-  // ---- ?debug: 충돌 마스크(자홍), 고정점(초록), 떨어지는 조각(빨강) ----
+  // ---- ?debug: 충돌 마스크(자홍), 고정점(초록) ----
 
   setupDebug() {
     if (this.textures.exists('debugmask')) this.textures.remove('debugmask');
@@ -382,8 +359,6 @@ class GameScene extends Phaser.Scene {
     g.clear();
     g.lineStyle(3, 0x22c55e, 1);
     for (const a of t.anchors) g.strokeCircle(a.x, a.y, a.r);
-    g.lineStyle(2, 0xff0000, 1);
-    for (const c of this.chunks) g.strokeRect(c.x, c.y, c.w, c.h);
   }
 }
 

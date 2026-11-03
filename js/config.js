@@ -17,9 +17,6 @@ const CONFIG = {
     SPECK_MIN: 200,    // 로드 시 이보다 작은 떠 있는 덩어리는 잡티로 지운다
     FRINGE: 2,         // 땅에서 이 거리 안의 반투명 픽셀만 외곽선으로 남긴다
     ANCHOR_RADIUS: 20, // 처음부터 떠 있는 섬의 자동 고정점 반지름
-    DEBRIS_MIN: 30,    // 이보다 작은 조각은 떨어뜨리지 않고 부순다
-    CRUSH_MAX: 30,     // 떨어지는 땅에 깔렸을 때 최대 피해
-    CRUSH_FACTOR: 0.06, // 낙하 속도(px/s)당 깔림 피해
   },
 
   PHYSICS: {

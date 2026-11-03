@@ -1,3 +1,6 @@
+// 남은 이동량 바 위치 (파워 바 왼쪽)
+const MOVE_BAR = { x: 180, w: 200 };
+
 // 화면에 고정되는 UI(scrollFactor 0)와, 탱크를 따라다니는 월드 UI를 함께 관리한다.
 class Hud {
   constructor(scene, tanks, terrain) {
@@ -18,7 +21,6 @@ class Hud {
     this.names = [text(16, 12, 22), text(W - 16, 12, 22, 1)];
     this.names[0].setText(tanks[0].player.name);
     this.names[1].setText(tanks[1].player.name);
-    this.hpLabels = [text(250, 46, 16, 1), text(W - 250, 46, 16, 0)];
     this.timer = text(W / 2, 8, 34, 0.5);
     this.wind = text(W / 2, 50, 18, 0.5);
     this.banner = text(W / 2, 100, 30, 0.5);
@@ -46,16 +48,11 @@ class Hud {
     for (const t of [this.banner, this.info, this.weapons]) t.setText('');
   }
 
-  update({ active, wind, timeLeft, power, weaponIndex, isAi, time, shell, chunks }) {
+  update({ active, wind, timeLeft, power, weaponIndex, isAi, time, shell }) {
     const g = this.g;
     const W = CONFIG.GAME_W;
     g.clear();
     this.world.clear();
-
-    this.drawHpBar(g, 16, 42, this.tanks[0], false);
-    this.drawHpBar(g, W - 16 - 240, 42, this.tanks[1], true);
-    this.hpLabels[0].setText(`${this.tanks[0].hp}`);
-    this.hpLabels[1].setText(`${this.tanks[1].hp}`);
 
     this.timer.setText(`${Math.ceil(Math.max(0, timeLeft))}`);
     this.timer.setColor(timeLeft <= 5 ? '#ff6b6b' : '#ffffff');
@@ -64,28 +61,21 @@ class Hud {
     this.wind.setText(`바람 ${dirLabel} ${Math.abs(wind)}`);
     this.drawWind(g, W / 2, 82, wind);
 
-    this.drawMinimap(g, chunks);
+    this.drawMinimap(g);
     if (shell) this.drawShellIndicator(g, shell);
+    for (const t of this.tanks) if (!t.dead) this.drawTankHpBar(this.world, t);
 
     if (active && !active.dead) {
       this.drawPowerBar(g, active, power);
+      this.drawMoveBar(g, active);
       this.drawMarker(this.world, active, time);
       this.drawAimLine(this.world, active);
-      this.info.setText(`${active.player.name}${isAi ? ' (CPU)' : ''}   각도 ${Math.round(active.elevation)}°   파워 ${Math.round(power)}   연료 ${Math.max(0, Math.round(active.fuel))}`);
+      this.info.setText(`${active.player.name}${isAi ? ' (CPU)' : ''}   각도 ${Math.round(active.elevation)}°   파워 ${Math.round(power)}`);
       this.weapons.setText(CONFIG.WEAPONS.map((w, i) => {
         const left = active.stock[i] === Infinity ? '∞' : active.stock[i];
         return `${i === weaponIndex ? '▶' : ''}${i + 1}.${w.name}(${left})`;
       }).join('    '));
     }
-  }
-
-  drawHpBar(g, x, y, tank, rightAligned) {
-    const w = 240;
-    const h = 18;
-    const fill = (tank.hp / CONFIG.TANK.MAX_HP) * (w - 4);
-    g.fillStyle(0x0b1a2b, 0.85).fillRoundedRect(x, y, w, h, 6);
-    g.fillStyle(tank.player.color, 1);
-    g.fillRect(rightAligned ? x + w - 2 - fill : x + 2, y + 2, fill, h - 4);
   }
 
   drawWind(g, x, y, wind) {
@@ -107,7 +97,27 @@ class Hud {
     }
   }
 
-  drawMinimap(g, chunks) {
+  // 이번 턴에 남은 이동량 (화면 고정, 파워 바 왼쪽)
+  drawMoveBar(g, tank) {
+    const { x, w } = MOVE_BAR;
+    const y = CONFIG.GAME_H - 70;
+    const max = CONFIG.TANK.FUEL;
+    const left = Math.max(0, Math.min(max, tank.fuel));
+    g.fillStyle(0x0b1a2b, 0.85).fillRoundedRect(x - 4, y - 4, w + 8, 30, 8);
+    g.fillStyle(left > 0 ? 0x4ade80 : 0x64748b, 1).fillRect(x, y, (w * left) / max, 22);
+  }
+
+  // 탱크 바로 아래에 붙는 에너지 바
+  drawTankHpBar(g, tank) {
+    const w = 56;
+    const x = tank.x - w / 2;
+    const y = tank.y + 8;
+    const hp = Math.max(0, Math.min(1, tank.hp / CONFIG.TANK.MAX_HP));
+    g.fillStyle(0x0b1a2b, 0.8).fillRect(x - 2, y - 2, w + 4, 9);
+    g.fillStyle(tank.player.color, 1).fillRect(x, y, w * hp, 5);
+  }
+
+  drawMinimap(g) {
     const m = this.mini;
     const sx = m.w / CONFIG.WORLD_W;
     const sy = m.h / CONFIG.WORLD_H;
@@ -119,9 +129,6 @@ class Hud {
       ctx.fillRect(0, 0, m.w, m.h);
       ctx.drawImage(this.terrain.texture.getSourceImage(), 0, 0, m.w, m.h);
       this.miniTex.refresh();
-    }
-    for (const c of chunks || []) {
-      g.fillStyle(0xa16207, 1).fillRect(m.x + c.x * sx, m.y + c.y * sy, Math.max(1, c.w * sx), Math.max(1, c.h * sy));
     }
     const cam = this.scene.cameras.main;
     g.lineStyle(2, 0xffffff, 0.9).strokeRect(m.x + cam.scrollX * sx, m.y, CONFIG.GAME_W * sx, m.h);
