@@ -366,4 +366,39 @@ class Terrain {
     this.texture.refresh();
     this.version++;
   }
+
+  // 표면을 위에서 눌러 낸 듯 얕게 판다 (탱크가 땅에 박히는 자국).
+  // [x0, x1] 각 열에서 fromY 아래 첫 표면부터 depthAt(x) px만큼 지운다. maxY보다 낮은 표면은 건드리지 않는다.
+  pressDown(x0, x1, fromY, maxY, depthAt) {
+    const { w, solid } = this;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    const bottom = [];
+    for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(w - 1, Math.ceil(x1)); x++) {
+      const y = this.surfaceY(x, fromY);
+      const d = Math.round(depthAt(x));
+      if (y === null || y > maxY || d <= 0) continue;
+      for (let yy = y; yy < y + d; yy++) solid[yy * w + x] = 0;
+      ctx.fillRect(x, y, 1, d);
+      bottom.push(x, y + d);
+    }
+    // 눌린 바닥을 따라 살짝 그을린 자국
+    if (bottom.length >= 4) {
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.filter = 'blur(2px)';
+      ctx.strokeStyle = 'rgba(18, 9, 5, 0.5)';
+      ctx.lineWidth = 6;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (let k = 0; k < bottom.length; k += 2) {
+        if (k === 0) ctx.moveTo(bottom[k], bottom[k + 1]);
+        else ctx.lineTo(bottom[k], bottom[k + 1]);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    this.texture.refresh();
+    this.version++;
+  }
 }

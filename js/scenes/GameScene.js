@@ -383,7 +383,10 @@ class GameScene extends Phaser.Scene {
     if (s.glow) { this.tweens.killTweensOf(s.glow); s.glow.destroy(); }
     s.trail.stop();
     this.time.delayedCall(500, () => s.trail.destroy());
-    if (hit !== 'out') this.explode(s.x, s.y, s.weapon, Math.hypot(s.vx, s.vy));
+    if (hit !== 'out') {
+      const radius = this.explode(s.x, s.y, s.weapon, Math.hypot(s.vx, s.vy));
+      if (hit === 'tank') this.digBehindTank(s, radius);
+    }
     // 따라가던 포탄이 끝나면 아직 날고 있는 다른 포탄으로 넘어간다.
     if (this.followedShell === s) this.followShell(this.shells[0] || null);
   }
@@ -420,6 +423,32 @@ class GameScene extends Phaser.Scene {
       rate: Phaser.Math.FloatBetween(0.94, 1.06),
     });
     this.time.delayedCall(140, () => Sfx.play('dirt_debris', at));
+    return radius;
+  }
+
+  // 탱크에 직접 맞으면 폭발이 공중이라 땅이 그대로 남아 어색하다.
+  // 탱크가 맞은 충격으로 땅에 눌린 것처럼 탱크 바닥 모양대로 얕게 판다.
+  // 포탄이 날아온 반대쪽이 더 깊어서 탱크가 그쪽으로 살짝 기울며 내려앉는다.
+  digBehindTank(s, radius) {
+    const T = CONFIG.TANK;
+    const D = T.BLAST_DIG;
+    // 맞은 탱크 = 착탄점에서 가장 가까운 탱크 (방금 폭발로 죽었을 수 있어 dead도 포함)
+    const dist = (t) => Math.hypot(t.x - s.x, t.y - T.HIT_CENTER_Y - s.y);
+    const tank = this.tanks.reduce((a, b) => (dist(b) < dist(a) ? b : a));
+    // 거의 수직으로 떨어졌으면 맞은 지점이 탱크 중심의 어느 쪽인지로 정한다.
+    const dir = Math.abs(s.vx) > 40 ? Math.sign(s.vx) : (Math.sign(tank.x - s.x) || 1);
+    // 탱크 몸체 이미지 폭 기준 (궤도는 몸체보다 조금 좁다)
+    const half = (tank.body.width * tank.rigScale / 2) * D.WIDTH;
+    const deep = radius * D.DEPTH;                 // 반대쪽 끝 깊이
+    const shallow = deep * D.NEAR;                 // 맞은 쪽 끝 깊이
+    this.terrain.pressDown(tank.x - half, tank.x + half, tank.y - T.MAX_CLIMB * 4, tank.y + D.MAX_DROP, (x) => {
+      const u = (x - tank.x) / half;               // -1 ~ 1
+      const far = (u * dir + 1) / 2;               // 맞은 쪽 0 → 반대쪽 1
+      // 궤도처럼 양 끝이 둥글게 올라오도록
+      const edge = Math.max(0, 1 - Math.abs(u));
+      const round = Math.sqrt(Math.min(1, edge / D.ROUND));
+      return (shallow + (deep - shallow) * far) * round;
+    });
   }
 
   // 화면 중심에서 x까지 거리에 따른 볼륨·좌우 패닝. 화면 안이면 거의 그대로, 멀어질수록 작아진다.
