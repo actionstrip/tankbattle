@@ -346,7 +346,9 @@ class GameScene extends Phaser.Scene {
     this.followShell(this.shells[Math.floor(this.shells.length / 2)]);
     Sfx.play(`fire_${weapon.key}`, { rate: Phaser.Math.FloatBetween(0.95, 1.05), ...this.soundAt(tank.x) });
     this.cameras.main.shake(90, 0.003);
-    this.muzzleFlash(tank.muzzle());
+    const m = tank.muzzle();
+    this.muzzleFlash(m);
+    tank.recoil(m.dirX, weapon.recoil || 1);
     this.state = 'flying';
   }
 

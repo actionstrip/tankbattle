@@ -21,6 +21,8 @@ class Tank {
     this.lastPower = null;
     this.stock = CONFIG.WEAPONS.map((w) => w.stock);
     this.moveRemainder = 0;
+    // 발사 반동 연출 값 (0이면 평상시). kick = 뒤로 밀림·들림, pulse = 크기 출렁임
+    this.fx = { kick: 0, pulse: 0, dir: 1 };
 
     const S = TANK_SHEET;
     const name = player.sprite;
@@ -172,10 +174,30 @@ class Tank {
 
   syncView(blend) {
     this.slope += (this.targetSlope - this.slope) * blend;
-    this.root.setPosition(this.x, this.y);
-    this.root.setRotation(this.slope);
+    const R = CONFIG.TANK.RECOIL;
+    const { kick, pulse, dir } = this.fx;
+    // 반동: 쏜 반대쪽으로 밀리고, 앞쪽이 살짝 들리고, 몸 전체가 커졌다 작아진다.
+    this.root.setPosition(this.x - dir * R.PUSH * kick, this.y);
+    this.root.setRotation(this.slope - dir * R.TILT * kick);
+    this.root.setScale(1 + R.PULSE * pulse);
     this.rig.setScale(this.rigScale * -this.facing, this.rigScale);
-    this.barrel.setRotation(Phaser.Math.DegToRad(this.elevation));
+    // 포신은 축을 따라 뒤로 쑥 들어갔다 나온다.
+    const e = Phaser.Math.DegToRad(this.elevation);
+    const back = (R.BARREL * kick) / this.rigScale;
+    this.barrel.setPosition(this.pivot.x + Math.cos(e) * back, this.pivot.y + Math.sin(e) * back);
+    this.barrel.setRotation(e);
+  }
+
+  // 발사 반동. strength는 무기별 배율 (강력탄은 더 세게).
+  recoil(dirX, strength = 1) {
+    const R = CONFIG.TANK.RECOIL;
+    const fx = this.fx;
+    this.scene.tweens.killTweensOf(fx);
+    fx.dir = Math.sign(dirX) || this.facing;
+    fx.kick = strength;
+    fx.pulse = strength;
+    this.scene.tweens.add({ targets: fx, kick: 0, duration: R.KICK_MS, ease: 'Quad.easeOut' });
+    this.scene.tweens.add({ targets: fx, pulse: 0, duration: R.PULSE_MS, ease: 'Elastic.easeOut', easeParams: [1, 0.35] });
   }
 
   // 차체 경사를 반영한 총구 위치와 발사 방향.

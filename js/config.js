@@ -51,6 +51,15 @@ const CONFIG = {
     HIT_RY: 28,
     HIT_CENTER_Y: 26,
     BODY_RADIUS: 22,   // 폭발 거리 계산 시 빼는 몸체 반경
+    // 발사 반동 연출 (무기의 recoil 배율이 곱해짐)
+    RECOIL: {
+      PUSH: 12,        // 쏜 반대쪽으로 밀리는 거리 (px)
+      TILT: 0.18,      // 앞쪽이 들리는 각도 (rad, 약 10°)
+      BARREL: 14,      // 포신이 뒤로 들어가는 거리 (px)
+      PULSE: 0.22,     // 크기 출렁임 (0.22 = 22% 커짐)
+      KICK_MS: 450,    // 밀림·들림이 돌아오는 시간
+      PULSE_MS: 700,   // 크기 출렁임이 잦아드는 시간
+    },
     MARKER_GAP: 10,      // 포신을 90°로 세웠을 때 총구 끝과 화살표 사이 간격 (px)
     MARKER_BOB: 6,       // 화살표가 위아래로 움직이는 폭 (px)
     MARKER_SCALE: 0.45,  // arrow.png 한 칸(약 58×57) 표시 배율
@@ -63,7 +72,7 @@ const CONFIG = {
   WEAPONS: [
     { key: 'normal', name: '일반탄', damage: 35, radius: 45, stock: Infinity, shells: 1 },
     // scale = 포탄 크기 배율, glow = 포탄 주위에 도는 빛 색
-    { key: 'heavy',  name: '강력탄', damage: 55, radius: 75, stock: 2, shells: 1, scale: 1.5, glow: 0x15803d },
+    { key: 'heavy',  name: '강력탄', damage: 55, radius: 75, stock: 2, shells: 1, scale: 1.5, glow: 0x15803d, recoil: 1.6 },
     { key: 'triple', name: '3연발',  damage: 18, radius: 30, stock: 2, shells: 3 },
   ],
   TRIPLE_SPREAD: 3,    // 도
