@@ -6,6 +6,7 @@ class TitleScene extends Phaser.Scene {
     const H = CONFIG.GAME_H;
     addFixedBackground(this);
 
+
     // 맵 전체가 보이도록 땅을 화면 폭에 맞춰 하단 정렬로 깐다.
     const ground = this.textures.get('ground').getSourceImage();
     this.add.image(0, H, 'ground').setOrigin(0, 1).setScale(W / ground.width);
@@ -45,6 +46,68 @@ class TitleScene extends Phaser.Scene {
       it.dt.setPosition(x + it.kt.width + 8, stripY).setOrigin(0, 0.5);
       x += it.w + spacing;
     }
+
+    // 배경음: 타이틀에 있는 동안 반복, 게임으로 넘어가면 부드럽게 끈다.
+    this.events.once('shutdown', () => Sfx.loop('loop1', false, { fade: 400 }));
+    const startMusic = () => Sfx.loop('loop1', true, { fade: 800 });
+    // 브라우저는 첫 클릭/키 입력 전까지 소리를 막는다 → 페이지를 연 뒤 처음 한 번만 안내 팝업으로 입력을 받는다.
+    if (this.registry.get('soundUnlocked')) startMusic();
+    else this.showSoundPrompt(startMusic);
+  }
+
+  showSoundPrompt(onClose) {
+    const W = CONFIG.GAME_W;
+    const H = CONFIG.GAME_H;
+    const D = CONFIG.DEPTH.OVERLAY;
+    // 화면 전체를 덮어 뒤의 메뉴 버튼이 눌리지 않게 한다.
+    const dim = this.add.rectangle(0, 0, W, H, 0x000000, 0.6).setOrigin(0).setDepth(D)
+      .setInteractive();
+    const pw = 460;
+    const ph = 220;
+    const px = W / 2 - pw / 2;
+    const py = H / 2 - ph / 2;
+    const g = this.add.graphics().setDepth(D + 1);
+    uiPanel(g, px, py, pw, ph, { radius: 16, alpha: 0.95 });
+    g.lineStyle(2, UI.GOLD, 0.8).strokeRoundedRect(px, py, pw, ph, 16);
+    // 스피커 아이콘
+    const ix = W / 2 - 14;
+    const iy = py + 52;
+    g.fillStyle(UI.GOLD, 1)
+      .fillRect(ix - 10, iy - 7, 9, 14)
+      .fillTriangle(ix - 2, iy - 7, ix + 12, iy - 18, ix + 12, iy + 18)
+      .fillTriangle(ix - 2, iy - 7, ix - 2, iy + 7, ix + 12, iy + 18);
+    g.lineStyle(3, UI.GOLD, 1);
+    for (const r of [10, 18]) {
+      g.beginPath();
+      g.arc(ix + 14, iy, r, -0.7, 0.7);
+      g.strokePath();
+    }
+    const msg = uiText(this, W / 2, py + 112, 22, { align: 'center' }).setText('소리를 켜고 게임을 시작하세요')
+      .setOrigin(0.5).setDepth(D + 1);
+    const hint = uiText(this, W / 2, py + 172, 16, { color: UI.GOLD_CSS }).setText('클릭하거나 아무 키나 누르세요')
+      .setOrigin(0.5).setDepth(D + 1);
+    const blink = this.tweens.add({ targets: hint, alpha: 0.35, duration: 700, yoyo: true, repeat: -1 });
+
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      this.input.keyboard.off('keydown', close);
+      blink.remove();
+      // 이 입력으로 오디오가 열린다 (howler도 자동으로 열지만 확실히 한 번 더)
+      if (window.Howler?.ctx?.state === 'suspended') Howler.ctx.resume();
+      this.registry.set('soundUnlocked', true);
+      Sfx.play('ui_click');
+      this.tweens.add({
+        targets: [dim, g, msg, hint], alpha: 0, duration: 200,
+        onComplete: () => { dim.destroy(); g.destroy(); msg.destroy(); hint.destroy(); },
+      });
+      // 닫히는 동안 메뉴가 눌리지 않게 막아 두었다가 바로 치운다
+      dim.disableInteractive();
+      onClose();
+    };
+    dim.on('pointerup', close);
+    this.input.keyboard.on('keydown', close);
   }
 
   addButton(x, y, label, sub, onClick) {

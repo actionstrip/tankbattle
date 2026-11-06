@@ -1,6 +1,6 @@
 // 효과음 (howler.js). 목록과 재생 위치는 docs/sound-effects.md 참고.
 //   Sfx.play(id, { volume, rate, pan })  — 한 번 재생. 같은 ID는 동시에 최대 MAX_SAME개.
-//   Sfx.loop(id, on, { volume, rate })   — 루프 소리를 켜고 끈다. 매 프레임 불러도 된다.
+//   Sfx.loop(id, on, { volume, rate, fade }) — 루프 소리를 켜고 끈다. 매 프레임 불러도 된다. fade = 페이드 ms
 //   Sfx.stopLoops()                      — 모든 루프 정지 (씬 종료 시)
 // 브라우저는 첫 클릭/키 입력 전까지 소리를 막는데, howler가 그때 자동으로 오디오를 연다.
 const Sfx = (() => {
@@ -14,6 +14,8 @@ const Sfx = (() => {
     tank_hit: [0.8], tank_destroyed: [1],
     game_win: [0.8], game_lose: [0.8],
     ui_click: [0.7], weapon_select: [0.7],
+    loop1: [0.5, true], // 타이틀 화면 배경음
+    loop2: [0.5, true], // 게임 화면 배경음
   };
   const MAX_SAME = 3;
   const FADE_MS = 120;
@@ -40,7 +42,7 @@ const Sfx = (() => {
     return sid;
   }
 
-  function loop(id, on, { volume = 1, rate } = {}) {
+  function loop(id, on, { volume = 1, rate, fade = FADE_MS } = {}) {
     const h = howls[id];
     if (!h) return;
     const L = loops[id];
@@ -48,7 +50,7 @@ const Sfx = (() => {
       const vol = LIST[id][0] * volume;
       if (!L) {
         const sid = h.play();
-        h.fade(0, vol, FADE_MS, sid);
+        h.fade(0, vol, fade, sid);
         loops[id] = { sid, vol };
       } else if (Math.abs(L.vol - vol) > 0.01) {
         h.volume(vol, L.sid);
@@ -58,8 +60,8 @@ const Sfx = (() => {
     } else if (L) {
       // 짧게 페이드아웃 후 정지 (뚝 끊기지 않게)
       delete loops[id];
-      h.fade(h.volume(L.sid), 0, FADE_MS, L.sid);
-      setTimeout(() => h.stop(L.sid), FADE_MS + 20);
+      h.fade(h.volume(L.sid), 0, fade, L.sid);
+      setTimeout(() => h.stop(L.sid), fade + 20);
     }
   }
 

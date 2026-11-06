@@ -56,6 +56,9 @@ class GameScene extends Phaser.Scene {
       Sfx.stop('game_lose');
     });
 
+    // 배경음: 게임 중 반복 (씬이 끝나면 위 stopLoops에서 함께 꺼진다)
+    Sfx.loop('loop2', true, { fade: 800 });
+
     this.playIntroSweep(() => this.startTurn());
   }
 
@@ -496,6 +499,8 @@ class GameScene extends Phaser.Scene {
   endGame(winnerTeam) {
     this.state = 'gameover';
     this.hud.hideTurnInfo();
+    // 결과음이 잘 들리도록 배경음은 부드럽게 끈다.
+    Sfx.loop('loop2', false, { fade: 600 });
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     const D = CONFIG.DEPTH.OVERLAY;
