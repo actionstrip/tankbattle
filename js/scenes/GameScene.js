@@ -325,11 +325,22 @@ class GameScene extends Phaser.Scene {
       const s = makeShell(tank.muzzle(tank.elevation + offset), this.power);
       s.weapon = weapon;
       s.owner = tank;
-      s.sprite = this.add.image(s.x, s.y, 'shell').setDepth(CONFIG.DEPTH.SHELL);
+      const size = weapon.scale || 1;
+      s.sprite = this.add.image(s.x, s.y, 'shell').setScale(size).setDepth(CONFIG.DEPTH.SHELL);
+      // 강력탄 등: 포탄 뒤에 은은하게 깜빡이는 빛 무리
+      if (weapon.glow) {
+        s.glow = this.add.image(s.x, s.y, 'dot').setTint(weapon.glow)
+          .setBlendMode(Phaser.BlendModes.ADD).setScale(1.7 * size).setAlpha(0.9)
+          .setDepth(CONFIG.DEPTH.SHELL - 1);
+        this.tweens.add({
+          targets: s.glow, alpha: 0.55, scale: 1.45 * size,
+          duration: 180, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        });
+      }
       s.trail = this.add.particles(0, 0, 'dot', {
-        follow: s.sprite, frequency: 28, lifespan: 380, scale: { start: 0.32, end: 0 },
-        alpha: { start: 0.55, end: 0 }, tint: 0xe5e7eb,
-      }).setDepth(CONFIG.DEPTH.SHELL - 1);
+        follow: s.sprite, frequency: 28, lifespan: 380, scale: { start: 0.32 * size, end: 0 },
+        alpha: { start: 0.55, end: 0 }, tint: weapon.glow || 0xe5e7eb,
+      }).setDepth(CONFIG.DEPTH.SHELL - 2);
       this.shells.push(s);
     }
     this.followShell(this.shells[Math.floor(this.shells.length / 2)]);
@@ -356,6 +367,7 @@ class GameScene extends Phaser.Scene {
     }
     for (const s of this.shells) {
       s.sprite.setPosition(s.x, s.y).setRotation(Math.atan2(s.vy, s.vx));
+      s.glow?.setPosition(s.x, s.y);
     }
     if (!this.shells.length) {
       this.stepAcc = 0;
@@ -366,6 +378,7 @@ class GameScene extends Phaser.Scene {
 
   finishShell(s, hit) {
     s.sprite.destroy();
+    if (s.glow) { this.tweens.killTweensOf(s.glow); s.glow.destroy(); }
     s.trail.stop();
     this.time.delayedCall(500, () => s.trail.destroy());
     if (hit !== 'out') this.explode(s.x, s.y, s.weapon, Math.hypot(s.vx, s.vy));

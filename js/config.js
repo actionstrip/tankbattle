@@ -62,7 +62,8 @@ const CONFIG = {
 
   WEAPONS: [
     { key: 'normal', name: '일반탄', damage: 35, radius: 45, stock: Infinity, shells: 1 },
-    { key: 'heavy',  name: '강력탄', damage: 55, radius: 75, stock: 2, shells: 1 },
+    // scale = 포탄 크기 배율, glow = 포탄 주위에 도는 빛 색
+    { key: 'heavy',  name: '강력탄', damage: 55, radius: 75, stock: 2, shells: 1, scale: 1.5, glow: 0x15803d },
     { key: 'triple', name: '3연발',  damage: 18, radius: 30, stock: 2, shells: 3 },
   ],
   TRIPLE_SPREAD: 3,    // 도
