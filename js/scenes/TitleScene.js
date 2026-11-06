@@ -68,6 +68,7 @@ class TitleScene extends Phaser.Scene {
   }
 
   begin(mode) {
+    Sfx.play('ui_click');
     this.scene.start('Game', { mode });
   }
 }

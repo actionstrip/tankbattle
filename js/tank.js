@@ -73,15 +73,19 @@ class Tank {
   move(dir, dt) {
     const T = CONFIG.TANK;
     this.facing = dir;
-    if (this.fuel <= 0 || this.falling) return false;
+    // blocked: 이동량 소진·벽·맵 끝에 막힘 (프레임당 1px 미만이라 이번 프레임에 못 움직인 것과 구분)
+    this.blocked = this.fuel <= 0;
+    if (this.blocked || this.falling) return false;
 
     this.moveRemainder += T.MOVE_SPEED * dt;
     let moved = false;
     while (this.moveRemainder >= 1 && this.fuel > 0) {
       this.moveRemainder -= 1;
       const nx = this.x + dir;
-      if (nx < 20 || nx > CONFIG.WORLD_W - 20) break;
-      if (!this.frontClear(nx, dir)) break;
+      if (nx < 20 || nx > CONFIG.WORLD_W - 20 || !this.frontClear(nx, dir)) {
+        this.blocked = true;
+        break;
+      }
 
       const gy = this.groundUnder(nx, this.y - T.MAX_CLIMB);
       this.x = nx;
@@ -93,7 +97,7 @@ class Tank {
       }
       this.y = gy;
     }
-    if (!moved) this.moveRemainder = 0;
+    if (this.blocked) this.moveRemainder = 0;
     return moved;
   }
 

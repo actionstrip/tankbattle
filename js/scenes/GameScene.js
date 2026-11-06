@@ -46,8 +46,32 @@ class GameScene extends Phaser.Scene {
     if (this.debug) this.setupDebug();
     this.setupCameraDrag();
 
-    cam.centerOn(this.tanks[0].x, CONFIG.WORLD_H / 2);
-    this.startTurn();
+    // 루프 소리 상태 (updateAiming/updateAi가 매 프레임 켜고, updateLoopSounds가 반영)
+    this.sndMove = false;
+    this.sndAim = false;
+    this.blockedPlayed = false;
+    this.events.once('shutdown', () => {
+      Sfx.stopLoops();
+      Sfx.stop('game_win');
+      Sfx.stop('game_lose');
+    });
+
+    this.playIntroSweep(() => this.startTurn());
+  }
+
+  // 스테이지 시작 연출: 맵 왼쪽 끝에서 오른쪽 끝까지 3초에 걸쳐 훑은 뒤 콜백 (첫 탱크로 이동).
+  playIntroSweep(onDone) {
+    const cam = this.cameras.main;
+    this.state = 'intro';
+    cam.stopFollow();
+    cam.centerOn(CONFIG.GAME_W / 2, CONFIG.WORLD_H / 2); // 맨 왼쪽
+    this.tweens.add({
+      targets: cam,
+      scrollX: CONFIG.WORLD_W - CONFIG.GAME_W,
+      duration: 3000,
+      ease: 'Sine.easeInOut',
+      onComplete: onDone,
+    });
   }
 
   // 탱크마다 서로 다른 발판을 무작위로 골라 그 위 아무 곳에 놓는다 (한 발판에 한 대).
@@ -175,6 +199,8 @@ class GameScene extends Phaser.Scene {
 
   update(time, delta) {
     const dt = Math.min(delta, 50) / 1000;
+    this.sndMove = false;
+    this.sndAim = false;
     for (const t of this.tanks) t.update(dt);
 
     // 조준 중에 맵 아래로 떨어지는 등으로 탱크가 죽으면 쏘지 않고 바로 정산한다.
@@ -192,6 +218,7 @@ class GameScene extends Phaser.Scene {
       default: break;
     }
 
+    this.updateLoopSounds();
     this.snow.update(dt, this.wind, time);
     this.hud.update({
       active: this.state === 'gameover' ? null : this.active,
@@ -214,15 +241,26 @@ class GameScene extends Phaser.Scene {
     if (this.timeLeft <= 0) { this.beginResolve(); return; }
 
     let moved = false;
-    if (this.cursors.left.isDown) moved = tank.move(-1, dt);
-    else if (this.cursors.right.isDown) moved = tank.move(1, dt);
+    const moveDir = this.cursors.left.isDown ? -1 : (this.cursors.right.isDown ? 1 : 0);
+    if (moveDir) moved = tank.move(moveDir, dt);
     // 둘러보다가 탱크를 움직이면 화면이 다시 탱크를 따라간다.
     if (moved && this.cameraFree && !this.drag) this.followTank(tank);
+    // 이동음: 키를 누르고 있고 막히지 않았으면 (1px 미만이라 이번 프레임에 안 움직였어도) 계속
+    this.sndMove = !!moveDir && !tank.blocked && !tank.falling;
+    // 막힘음: 키를 누른 채 처음 막혔을 때 한 번만
+    if (moveDir && tank.blocked) {
+      if (!this.blockedPlayed) Sfx.play('tank_move_blocked');
+      this.blockedPlayed = true;
+    } else {
+      this.blockedPlayed = false;
+    }
 
     const T = CONFIG.TANK;
+    const prevElev = tank.elevation;
     if (this.cursors.up.isDown) tank.elevation += T.AIM_SPEED * dt;
     if (this.cursors.down.isDown) tank.elevation -= T.AIM_SPEED * dt;
     tank.elevation = Phaser.Math.Clamp(tank.elevation, T.ELEV_MIN, T.ELEV_MAX);
+    this.sndAim = tank.elevation !== prevElev;
 
     this.weaponKeys.forEach((key, i) => {
       if (Phaser.Input.Keyboard.JustDown(key)) this.selectWeapon(i);
@@ -253,6 +291,7 @@ class GameScene extends Phaser.Scene {
     const stepDeg = CONFIG.TANK.AIM_SPEED * dt;
     if (Math.abs(diff) > stepDeg) {
       tank.elevation += Math.sign(diff) * stepDeg;
+      this.sndAim = true;
       return;
     }
     tank.elevation = ai.plan.elevation;
@@ -294,6 +333,7 @@ class GameScene extends Phaser.Scene {
       this.shells.push(s);
     }
     this.followShell(this.shells[Math.floor(this.shells.length / 2)]);
+    Sfx.play(`fire_${weapon.key}`, { rate: Phaser.Math.FloatBetween(0.95, 1.05), ...this.soundAt(tank.x) });
     this.cameras.main.shake(90, 0.003);
     this.muzzleFlash(tank.muzzle());
     this.state = 'flying';
@@ -355,6 +395,42 @@ class GameScene extends Phaser.Scene {
       }
     }
     this.explosionFx(x, y, radius);
+
+    // 폭발음: 무기별로 고르고, 세게 맞을수록(scale 0.7~1.3) 크게, 화면에서 멀수록 작게
+    const id = { triple: 'explode_small', heavy: 'explode_big' }[weapon.key] || 'explode_normal';
+    const at = this.soundAt(x);
+    Sfx.play(id, {
+      ...at,
+      volume: at.volume * Phaser.Math.Clamp(0.55 + scale * 0.35, 0.7, 1),
+      rate: Phaser.Math.FloatBetween(0.94, 1.06),
+    });
+    this.time.delayedCall(140, () => Sfx.play('dirt_debris', at));
+  }
+
+  // 화면 중심에서 x까지 거리에 따른 볼륨·좌우 패닝. 화면 안이면 거의 그대로, 멀어질수록 작아진다.
+  soundAt(x) {
+    const mid = this.cameras.main.midPoint.x;
+    const d = x - mid;
+    const W = CONFIG.GAME_W;
+    return {
+      volume: Phaser.Math.Clamp(1 - Math.max(0, Math.abs(d) - W * 0.5) / W, 0.35, 1),
+      pan: Phaser.Math.Clamp(d / W, -0.6, 0.6),
+    };
+  }
+
+  // 루프 소리는 매 프레임 현재 상태로 켜고 끈다 → 상태가 바뀌면 자동으로 멈춘다.
+  updateLoopSounds() {
+    const s = this.state;
+    Sfx.loop('tank_move', this.sndMove && s === 'aiming');
+    Sfx.loop('barrel_aim', this.sndAim && s === 'aiming');
+    // 충전음: 파워에 맞춰 피치 상승
+    Sfx.loop('charge_loop', s === 'charging', { rate: 0.8 + (this.power / 100) * 0.8 });
+    // 비행음: 따라가는 포탄 속도에 맞춰 피치 상승
+    const sh = this.followedShell || this.shells[0];
+    const speed = sh ? Math.hypot(sh.vx, sh.vy) : 0;
+    Sfx.loop('shell_whistle', s === 'flying' && this.shells.length > 0, {
+      rate: 0.85 + Phaser.Math.Clamp(speed / 1200, 0, 1) * 0.45,
+    });
   }
 
   beginResolve() {
@@ -382,6 +458,11 @@ class GameScene extends Phaser.Scene {
     this.add.rectangle(0, 0, W, H, 0x0b1a2b, 0.55).setOrigin(0).setDepth(D).setScrollFactor(0);
     let message = '무승부';
     let color = 0xfbbf24;
+    // 결과음: CPU 팀이 이기면 패배음, 그 외(사람 팀 승리·핫시트)는 승리음. 무승부는 소리 없음.
+    if (winnerTeam) {
+      const cpuWon = this.tanks.some((t) => t.player.team === winnerTeam && t.player.ai);
+      Sfx.play(cpuWon ? 'game_lose' : 'game_win');
+    }
     if (winnerTeam) {
       const winner = this.tanks.find((t) => t.player.team === winnerTeam);
       const label = this.tanks.length > 2 ? CONFIG.TEAMS[winnerTeam] : winner.player.name;
@@ -405,7 +486,7 @@ class GameScene extends Phaser.Scene {
 
     // 버튼: [R] 다시 하기   [T] 타이틀 — 키보드와 마우스 클릭 모두 동작
     let done = false;
-    const once = (fn) => () => { if (!done) { done = true; fn(); } };
+    const once = (fn) => () => { if (!done) { done = true; Sfx.play('ui_click'); fn(); } };
     const restart = once(() => this.scene.restart({ mode: this.mode }));
     const toTitle = once(() => this.scene.start('Title'));
     const buttons = [['R', '다시 하기', restart], ['T', '타이틀', toTitle]];
@@ -436,12 +517,16 @@ class GameScene extends Phaser.Scene {
   // 무기 선택 (키보드 1·2·3 또는 무기 슬롯 클릭). 내 턴 조준 중에만, 남은 탄이 있을 때만.
   selectWeapon(i) {
     if (this.state !== 'aiming' || this.ai) return;
-    if (this.active.stock[i] > 0) this.weaponIndex = i;
+    if (this.active.stock[i] > 0 && this.weaponIndex !== i) {
+      this.weaponIndex = i;
+      Sfx.play('weapon_select');
+    }
   }
 
   // ---- 이벤트 ----
 
   onTankDamaged(tank, amount) {
+    if (tank.hp > 0) Sfx.play('tank_hit', this.soundAt(tank.x)); // 격파 시엔 tank_destroyed만
     const label = this.add.text(tank.x, tank.y - 80, `-${amount}`, {
       fontFamily: CONFIG.FONT, fontSize: '30px', fontStyle: 'bold', color: '#fca5a5',
       stroke: '#0b1a2b', strokeThickness: 6,
@@ -452,6 +537,7 @@ class GameScene extends Phaser.Scene {
   }
 
   onTankDestroyed(tank) {
+    Sfx.play('tank_destroyed', this.soundAt(tank.x));
     this.explosionFx(tank.x, Math.min(tank.y, CONFIG.WORLD_H - 10) - 20, 70);
   }
 
