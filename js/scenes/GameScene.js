@@ -45,6 +45,7 @@ class GameScene extends Phaser.Scene {
     this.debug = new URLSearchParams(location.search).has('debug');
     if (this.debug) this.setupDebug();
     this.setupCameraDrag();
+    this.setupEdgeMouse();
 
     // 루프 소리 상태 (updateAiming/updateAi가 매 프레임 켜고, updateLoopSounds가 반영)
     this.sndMove = false;
@@ -62,19 +63,25 @@ class GameScene extends Phaser.Scene {
     this.playIntroSweep(() => this.startTurn());
   }
 
-  // 스테이지 시작 연출: 맵 왼쪽 끝에서 오른쪽 끝까지 3초에 걸쳐 훑은 뒤 콜백 (첫 탱크로 이동).
+  // 스테이지 시작 연출: 맵 가운데에서 시작해 턴 순서대로 탱크를 하나씩 비춘다
+  // (easeOut으로 이동 → 잠깐 멈춤 → 다음 탱크). 끝나면 콜백 (startTurn이 첫 탱크로 다시 이동).
   playIntroSweep(onDone) {
+    const INTRO = { MOVE: 900, HOLD: 600 }; // 탱크 사이 이동 시간, 탱크에서 멈춰 있는 시간 (ms)
     const cam = this.cameras.main;
+    const half = CONFIG.GAME_W / 2;
     this.state = 'intro';
     cam.stopFollow();
-    cam.centerOn(CONFIG.GAME_W / 2, CONFIG.WORLD_H / 2); // 맨 왼쪽
-    this.tweens.add({
-      targets: cam,
-      scrollX: CONFIG.WORLD_W - CONFIG.GAME_W,
-      duration: 3000,
-      ease: 'Sine.easeInOut',
-      onComplete: onDone,
-    });
+    cam.centerOn(CONFIG.WORLD_W / 2, CONFIG.WORLD_H / 2); // 맵 가운데
+
+    const order = this.tanks.filter((t) => !t.dead);
+    const visit = (i) => {
+      if (i >= order.length) { onDone(); return; }
+      const x = Phaser.Math.Clamp(order[i].x, half, CONFIG.WORLD_W - half);
+      cam.pan(x, CONFIG.WORLD_H / 2, INTRO.MOVE, 'Cubic.easeOut', true, (c, progress) => {
+        if (progress === 1) this.time.delayedCall(INTRO.HOLD, () => visit(i + 1));
+      });
+    };
+    visit(0);
   }
 
   // 탱크마다 서로 다른 발판을 무작위로 골라 그 위 아무 곳에 놓는다 (한 발판에 한 대).
@@ -163,6 +170,53 @@ class GameScene extends Phaser.Scene {
     this.input.on('pointerupoutside', end);
   }
 
+  // 마우스 위치를 창 전체에서 추적한다 (게임 화면 밖으로 나가도 게임 좌표로 환산).
+  // Phaser 포인터는 캔버스 밖에서는 갱신되지 않으므로 window에서 직접 받는다.
+  setupEdgeMouse() {
+    this.edgeMouse = null; // { x: 게임 좌표 x, down: 버튼 눌림 여부 }
+    const onMove = (e) => {
+      const rect = this.game.canvas.getBoundingClientRect();
+      if (!rect.width) return;
+      this.edgeMouse = {
+        x: (e.clientX - rect.left) * CONFIG.GAME_W / rect.width,
+        down: e.buttons !== 0,
+      };
+    };
+    const onBlur = () => { this.edgeMouse = null; }; // 다른 창으로 전환하면 멈춘다
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('blur', onBlur);
+    this.events.once('shutdown', () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('blur', onBlur);
+    });
+  }
+
+  // 내 턴에 마우스(누르지 않은 상태)를 화면 좌우 끝에 두면 그쪽으로 화면을 민다.
+  // 게임 화면 밖(브라우저 여백·창 밖)으로 나가도 마지막 위치 기준으로 계속 반응한다.
+  // 터치 입력이거나, 버튼(무기 슬롯 등) 위에 있으면 움직이지 않는다.
+  updateEdgeScroll(dt) {
+    if (!this.canDragCamera || this.drag) return;
+    const m = this.edgeMouse;
+    const p = this.input.activePointer;
+    if (!m || m.down || p?.wasTouch) return;
+    const E = CONFIG.EDGE_SCROLL;
+    let dir = 0;
+    let depth = 0;
+    if (m.x < E.ZONE) { dir = -1; depth = (E.ZONE - m.x) / E.ZONE; }
+    else if (m.x > CONFIG.GAME_W - E.ZONE) { dir = 1; depth = (m.x - (CONFIG.GAME_W - E.ZONE)) / E.ZONE; }
+    if (!dir) return;
+    if (this.input.isOver && this.input.hitTestPointer(p).length > 0) return;
+
+    const cam = this.cameras.main;
+    const maxX = CONFIG.WORLD_W - CONFIG.GAME_W;
+    const next = Phaser.Math.Clamp(cam.scrollX + dir * E.SPEED * Math.min(1, depth) * dt, 0, maxX);
+    if (next === cam.scrollX) return; // 이미 맵 끝
+    cam.panEffect?.reset(); // 턴 시작 카메라 이동 중이면 멈춘다
+    cam.stopFollow();
+    cam.scrollX = next;
+    this.cameraFree = true;
+  }
+
   // 둘러보던 화면을 다시 탱크로 붙인다.
   followTank(tank) {
     this.cameraFree = false;
@@ -220,6 +274,7 @@ class GameScene extends Phaser.Scene {
       case 'resolving': this.updateResolving(dt); break;
       default: break;
     }
+    this.updateEdgeScroll(dt);
 
     this.updateLoopSounds();
     this.snow.update(dt, this.wind, time);
