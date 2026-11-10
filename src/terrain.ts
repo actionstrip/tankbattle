@@ -1,13 +1,31 @@
 // 파괴 가능한 땅 레이어.
 // stage1_ground.png를 월드 폭에 맞춰 확대해 하단 정렬로 깔고, 알파값으로 충돌 마스크를 만든다.
 // 포탄이 파낸 자리는 투명해져 화면에 고정된 배경이 그대로 보인다.
-class Terrain {
-  constructor(scene) {
-    const T = CONFIG.TERRAIN;
+import Phaser from 'phaser';
+import { CONFIG } from './config';
+import { sourceImage } from './tankSlicer';
+
+export interface Anchor { x: number; y: number; r: number }
+export interface Platform { x0: number; x1: number }
+interface BBox { minX: number; minY: number; maxX: number; maxY: number }
+
+export class Terrain {
+  readonly scene: Phaser.Scene;
+  readonly w: number;
+  readonly h: number;
+  /** 모양이 바뀔 때마다 증가 (미니맵·디버그 갱신용) */
+  version = 0;
+  readonly ctx: CanvasRenderingContext2D;
+  readonly texture: Phaser.Textures.CanvasTexture;
+  readonly solid: Uint8Array;
+  private readonly mark: Uint8Array;
+  private readonly queue: Int32Array;
+  anchors: Anchor[] = [];
+
+  constructor(scene: Phaser.Scene) {
     this.scene = scene;
     this.w = CONFIG.WORLD_W;
     this.h = CONFIG.WORLD_H;
-    this.version = 0; // 모양이 바뀔 때마다 증가 (미니맵·디버그 갱신용)
 
     // 조각을 떼어 낼 때 getImageData를 자주 쓰므로 CPU 쪽 캔버스로 만든다.
     // (GPU 가속 캔버스는 읽을 때마다 수백 ms씩 걸릴 수 있다)
@@ -15,10 +33,10 @@ class Terrain {
     const canvas = document.createElement('canvas');
     canvas.width = this.w;
     canvas.height = this.h;
-    this.ctx = canvas.getContext('2d', { willReadFrequently: true });
-    this.texture = scene.textures.addCanvas('terrain', canvas);
+    this.ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+    this.texture = scene.textures.addCanvas('terrain', canvas)!;
 
-    const src = scene.textures.get('ground').getSourceImage();
+    const src = sourceImage(scene, 'ground');
     const drawH = Math.round((src.height * this.w) / src.width);
     this.ctx.drawImage(src, 0, this.h - drawH, this.w, drawH);
 
@@ -29,7 +47,7 @@ class Terrain {
 
     const img = this.ctx.getImageData(0, 0, this.w, this.h);
     const d = img.data;
-    for (let i = 0; i < n; i++) this.solid[i] = d[i * 4 + 3] >= T.ALPHA_SOLID ? 1 : 0;
+    for (let i = 0; i < n; i++) this.solid[i] = d[i * 4 + 3] >= CONFIG.TERRAIN.ALPHA_SOLID ? 1 : 0;
     this.removeSpecks(img);
     this.ctx.putImageData(img, 0, 0);
     this.anchors = this.findAnchors();
@@ -40,7 +58,7 @@ class Terrain {
 
   // ---- 질의 ----
 
-  isSolid(x, y) {
+  isSolid(x: number, y: number): boolean {
     const ix = Math.floor(x);
     const iy = Math.floor(y);
     if (ix < 0 || ix >= this.w || iy < 0 || iy >= this.h) return false;
@@ -48,7 +66,7 @@ class Terrain {
   }
 
   // fromY부터 아래로 내려가며 처음 만나는 땅의 y. 없으면 null.
-  surfaceY(x, fromY) {
+  surfaceY(x: number, fromY: number): number | null {
     const ix = Math.floor(x);
     if (ix < 0 || ix >= this.w) return null;
     for (let y = Math.max(0, Math.floor(fromY)); y < this.h; y++) {
@@ -59,11 +77,11 @@ class Terrain {
 
   // 위에서 내려다본 표면이 끊기지 않고 이어지는 구간(발판)들을 찾는다.
   // 이웃 열과 표면 높이 차가 maxStep 이하면 같은 발판으로 본다. [{x0, x1}] (양 끝 포함)
-  findPlatforms(minWidth, maxStep = 12, margin = 20) {
-    const out = [];
+  findPlatforms(minWidth: number, maxStep = 12, margin = 20): Platform[] {
+    const out: Platform[] = [];
     let start = -1;
-    let prev = null;
-    const close = (end) => {
+    let prev: number | null = null;
+    const close = (end: number) => {
       if (start >= 0 && end - start + 1 >= minWidth) out.push({ x0: start, x1: end });
       start = -1;
     };
@@ -80,11 +98,11 @@ class Terrain {
   // ---- 연결 요소 탐색 (4방향) ----
 
   // queue[0..tail)에 시드가 들어 있고 mark가 이미 찍혀 있어야 한다. 새 tail을 돌려준다.
-  flood(tail) {
+  private flood(tail: number): number {
     const { w, solid, mark, queue } = this;
     const last = solid.length - w;
     let head = 0;
-    const visit = (j) => {
+    const visit = (j: number) => {
       if (solid[j] === 1 && mark[j] === 0) {
         mark[j] = 1;
         queue[tail++] = j;
@@ -102,7 +120,7 @@ class Terrain {
   }
 
   // 아직 mark되지 않은 땅 덩어리마다 fn(count, bbox)를 호출한다. 픽셀 목록은 queue[0..count).
-  eachComponent(fn) {
+  private eachComponent(fn: (count: number, bbox: BBox) => void): void {
     const { w, solid, mark, queue } = this;
     for (let i = 0; i < solid.length; i++) {
       if (solid[i] !== 1 || mark[i] !== 0) continue;
@@ -127,18 +145,18 @@ class Terrain {
   }
 
   // 맨 아래 행과 고정점에서 시작해 연결된 땅을 mark한다.
-  markAnchored() {
+  private markAnchored(): void {
     const { w, h, solid, mark, queue } = this;
     mark.fill(0);
     let tail = 0;
-    const seed = (i) => {
+    const seed = (i: number) => {
       if (solid[i] === 1 && mark[i] === 0) {
         mark[i] = 1;
         queue[tail++] = i;
       }
     };
     for (let x = 0; x < w; x++) seed((h - 1) * w + x);
-    for (const a of this.anchors || []) {
+    for (const a of this.anchors) {
       for (let y = Math.max(0, a.y - a.r); y <= Math.min(h - 1, a.y + a.r); y++) {
         for (let x = Math.max(0, a.x - a.r); x <= Math.min(w - 1, a.x + a.r); x++) {
           if ((x - a.x) ** 2 + (y - a.y) ** 2 <= a.r * a.r) seed(y * w + x);
@@ -151,7 +169,7 @@ class Terrain {
   // ---- 로드 시 정리 ----
 
   // 원본 풀 외곽의 반투명 번짐과 작은 잡티를 지운다.
-  removeSpecks(img) {
+  private removeSpecks(img: ImageData): void {
     const T = CONFIG.TERRAIN;
     const { w, h, solid, queue } = this;
     this.mark.fill(0);
@@ -186,9 +204,9 @@ class Terrain {
   }
 
   // 처음부터 떠 있는 섬마다 중심에 가장 가까운 픽셀에 고정점을 둔다.
-  findAnchors() {
+  private findAnchors(): Anchor[] {
     const { w, queue } = this;
-    const anchors = [];
+    const anchors: Anchor[] = [];
     this.anchors = [];
     this.markAnchored();
     this.eachComponent((count, b) => {
@@ -209,10 +227,8 @@ class Terrain {
 
   // ---- 변형 ----
 
-  // 열(column) 단위로 파낸다. 바닥은 평평한 사발 모양이고,
-  // 구덩이 위로 얇게 남는 흙(처마)은 함께 걷어 내 공중에 뜬 흙이 생기지 않게 한다.
   // 착탄점 주변의 빈 칸 방향(= 지형 표면의 바깥쪽 법선)을 구한다.
-  surfaceNormal(cx, cy, R = 12) {
+  surfaceNormal(cx: number, cy: number, R = 12): { nx: number; ny: number } {
     let nx = 0;
     let ny = 0;
     for (let dy = -R; dy <= R; dy++) {
@@ -224,7 +240,7 @@ class Terrain {
     return { nx, ny };
   }
 
-  carve(cx, cy, r) {
+  carve(cx: number, cy: number, r: number): void {
     // 발판 옆면(벽)에 맞았으면 열 단위 사발 대신 둥글게 판다.
     // 열 단위로 파면 옆면에서는 위아래가 통째로 지워져 네모나게 잘려 보이기 때문.
     const n = this.surfaceNormal(cx, cy);
@@ -236,7 +252,7 @@ class Terrain {
   }
 
   // 옆면 착탄: 원형으로 파고 가장자리에 그을음
-  carveRound(cx, cy, r) {
+  private carveRound(cx: number, cy: number, r: number): void {
     const { w, solid } = this;
     const r2 = r * r;
     const x0 = Math.max(0, Math.floor(cx - r));
@@ -267,8 +283,9 @@ class Terrain {
     this.version++;
   }
 
-  // 윗면 착탄: 열 단위 사발 모양
-  carveBowl(cx, cy, r) {
+  // 윗면 착탄: 열 단위 사발 모양.
+  // 바닥은 평평한 사발 모양이고, 구덩이 위로 얇게 남는 흙(처마)은 함께 걷어 내 공중에 뜬 흙이 생기지 않게 한다.
+  private carveBowl(cx: number, cy: number, r: number): void {
     const { w, h, solid } = this;
     const depth = r * 0.72;        // 폭발 중심 아래로 파이는 깊이
     const FLAT = 0.35;             // 중심에서 이 비율까지는 평평한 바닥, 바깥은 둥근 어깨
@@ -281,7 +298,7 @@ class Terrain {
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
-    const bottom = [];
+    const bottom: number[] = [];
     for (let x = x0; x <= x1; x++) {
       const t = Math.min(1, Math.abs(x - cx) / r);
       // 바닥선에 약간의 울퉁불퉁함을 준다 (가장자리로 갈수록 0).
@@ -313,7 +330,8 @@ class Terrain {
     // 표면은 구덩이 바닥 근처까지만 찾는다. 그 아래(발판이 뚫려 보이는 먼 땅)를 기준으로 삼으면
     // 발판 전체가 세로로 통째로 깎여 나가기 때문.
     const yLow = Math.min(h - 1, Math.round(cy + depth + 6));
-    const surf = (x) => {                           // -1: 위쪽 한계부터 흙(절벽), null: 구덩이 깊이 안에 흙 없음(뚫림)
+    // -1: 위쪽 한계부터 흙(절벽), null: 구덩이 깊이 안에 흙 없음(뚫림)
+    const surf = (x: number): number | null => {
       if (solid[yTop * w + x] === 1) return -1;
       for (let y = yTop + 1; y <= yLow; y++) if (solid[y * w + x] === 1) return y;
       return null;
@@ -348,7 +366,7 @@ class Terrain {
     ctx.globalCompositeOperation = 'source-atop';
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
-    const strokeBottom = (width, color, blur) => {
+    const strokeBottom = (width: number, color: string, blur: number) => {
       ctx.filter = blur ? `blur(${blur}px)` : 'none';
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
@@ -369,12 +387,12 @@ class Terrain {
 
   // 표면을 위에서 눌러 낸 듯 얕게 판다 (탱크가 땅에 박히는 자국).
   // [x0, x1] 각 열에서 fromY 아래 첫 표면부터 depthAt(x) px만큼 지운다. maxY보다 낮은 표면은 건드리지 않는다.
-  pressDown(x0, x1, fromY, maxY, depthAt) {
+  pressDown(x0: number, x1: number, fromY: number, maxY: number, depthAt: (x: number) => number): void {
     const { w, solid } = this;
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = 'destination-out';
-    const bottom = [];
+    const bottom: number[] = [];
     for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(w - 1, Math.ceil(x1)); x++) {
       const y = this.surfaceY(x, fromY);
       const d = Math.round(depthAt(x));

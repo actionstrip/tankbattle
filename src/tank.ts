@@ -1,28 +1,55 @@
 // (x, y)는 궤도 바닥 중앙이며, y는 밟고 있는 땅의 첫 픽셀 행이다.
-class Tank {
-  constructor(scene, terrain, player, barrelInfo) {
+import Phaser from 'phaser';
+import { CONFIG } from './config';
+import type { Player } from './config';
+import type { Muzzle } from './projectile';
+import type { GameScene } from './scenes/GameScene';
+import { TANK_SHEET, sourceImage } from './tankSlicer';
+import type { BarrelInfo } from './tankSlicer';
+import type { Terrain } from './terrain';
+
+export class Tank {
+  readonly scene: GameScene;
+  readonly terrain: Terrain;
+  readonly player: Player;
+  readonly barrelLength: number;
+
+  x: number;
+  y: number;
+  facing: number;
+  elevation = 45;
+  slope = 0;
+  targetSlope = 0;
+  hp: number = CONFIG.TANK.MAX_HP;
+  fuel: number = CONFIG.TANK.FUEL;
+  dead = false;
+  falling = false;
+  fallStartY = 0;
+  vy = 0;
+  lastPower: number | null = null;
+  stock: number[];
+  /** 이동량 소진·벽·맵 끝에 막힘 */
+  blocked = false;
+  private moveRemainder = 0;
+  /** 발사 반동 연출 값 (0이면 평상시). kick = 뒤로 밀림·들림, pulse = 크기 출렁임 */
+  private fx = { kick: 0, pulse: 0, dir: 1 };
+
+  readonly pivot: { x: number; y: number };
+  readonly barrel: Phaser.GameObjects.Image;
+  readonly body: Phaser.GameObjects.Image;
+  readonly rig: Phaser.GameObjects.Container;
+  readonly root: Phaser.GameObjects.Container;
+
+  constructor(scene: GameScene, terrain: Terrain, player: Player, barrelInfo: BarrelInfo) {
     this.scene = scene;
     this.terrain = terrain;
     this.player = player;
     this.barrelLength = barrelInfo.length * TANK_SHEET.SCALE;
 
     this.x = player.spawnX;
-    this.y = terrain.surfaceY(this.x, 0);
+    this.y = terrain.surfaceY(this.x, 0) ?? 0; // 땅이 없으면 맨 위에서 떨어진다
     this.facing = player.facing;
-    this.elevation = 45;
-    this.slope = 0;
-    this.targetSlope = 0;
-    this.hp = CONFIG.TANK.MAX_HP;
-    this.fuel = CONFIG.TANK.FUEL;
-    this.dead = false;
-    this.falling = false;
-    this.fallStartY = 0;
-    this.vy = 0;
-    this.lastPower = null;
     this.stock = CONFIG.WEAPONS.map((w) => w.stock);
-    this.moveRemainder = 0;
-    // 발사 반동 연출 값 (0이면 평상시). kick = 뒤로 밀림·들림, pulse = 크기 출렁임
-    this.fx = { kick: 0, pulse: 0, dir: 1 };
 
     const S = TANK_SHEET;
     const name = player.sprite;
@@ -33,7 +60,7 @@ class Tank {
 
     const bo = barrelInfo.origin;
     this.barrel = scene.add.image(this.pivot.x, this.pivot.y, 'tank_barrel').setOrigin(bo.x, bo.y);
-    const src = scene.textures.get(`tank_${name}_body_src`).getSourceImage();
+    const src = sourceImage(scene, `tank_${name}_body_src`);
     this.body = scene.add.image(0, 0, `tank_${name}_body`)
       .setOrigin(S.ORIGIN.x / src.width, S.ORIGIN.y / src.height);
     // 배치 시안대로 포신(고리 부분)이 몸체 위에 그려진다.
@@ -43,11 +70,11 @@ class Tank {
     this.syncView(1);
   }
 
-  get rigScale() { return CONFIG.TANK.SCALE; }
+  get rigScale(): number { return CONFIG.TANK.SCALE; }
 
-  groundUnder(x, fromY) {
+  groundUnder(x: number, fromY: number): number | null {
     const F = CONFIG.TANK.FEET;
-    let best = null;
+    let best: number | null = null;
     for (const cx of [x - F, x, x + F]) {
       const y = this.terrain.surfaceY(cx, fromY);
       if (y !== null && (best === null || y < best)) best = y;
@@ -55,14 +82,14 @@ class Tank {
     return best;
   }
 
-  isSupported() {
+  isSupported(): boolean {
     const F = CONFIG.TANK.FEET;
     const t = this.terrain;
     return t.isSolid(this.x - F, this.y) || t.isSolid(this.x, this.y) || t.isSolid(this.x + F, this.y);
   }
 
   // 앞쪽 열이 오를 수 있는 높이 위로 차체 높이만큼 비어 있는지 (벽·낮은 천장 판정).
-  frontClear(nx, dir) {
+  frontClear(nx: number, dir: number): boolean {
     const T = CONFIG.TANK;
     const front = nx + dir * T.FEET;
     for (let y = this.y - T.MAX_CLIMB - 1; y >= this.y - T.CLEARANCE; y--) {
@@ -72,7 +99,7 @@ class Tank {
   }
 
   // dir: -1 | 1. 실제로 움직였으면 true.
-  move(dir, dt) {
+  move(dir: number, dt: number): boolean {
     const T = CONFIG.TANK;
     this.facing = dir;
     // blocked: 이동량 소진·벽·맵 끝에 막힘 (프레임당 1px 미만이라 이번 프레임에 못 움직인 것과 구분)
@@ -103,7 +130,7 @@ class Tank {
     return moved;
   }
 
-  startFall() {
+  startFall(): void {
     if (this.falling) return;
     this.falling = true;
     this.fallStartY = this.y;
@@ -111,14 +138,14 @@ class Tank {
   }
 
   // 떨어진 땅에 묻혔을 때 위로 밀어 올린다.
-  unstick() {
+  unstick(): void {
     if (!this.terrain.isSolid(this.x, this.y - 1)) return;
     while (this.y > 0 && this.terrain.isSolid(this.x, this.y - 1)) this.y--;
     this.falling = false;
     this.vy = 0;
   }
 
-  update(dt) {
+  update(dt: number): void {
     if (this.dead) return;
 
     if (!this.falling && !this.isSupported()) this.startFall();
@@ -129,7 +156,7 @@ class Tank {
     this.syncView(Math.min(1, dt * 10));
   }
 
-  fall(dt) {
+  private fall(dt: number): void {
     const T = CONFIG.TANK;
     this.vy += CONFIG.PHYSICS.GRAVITY * dt;
     let px = Math.max(1, Math.round(this.vy * dt));
@@ -151,7 +178,7 @@ class Tank {
   }
 
   // 궤도 아래 5개 지점 높이의 최소제곱 기울기. 파인 땅 위에서도 덜 떨린다.
-  updateSlope() {
+  private updateSlope(): void {
     const from = this.y - 30;
     let n = 0;
     let sx = 0;
@@ -172,7 +199,7 @@ class Tank {
     this.targetSlope = Phaser.Math.Clamp(Math.atan(slope), -0.6, 0.6);
   }
 
-  syncView(blend) {
+  private syncView(blend: number): void {
     this.slope += (this.targetSlope - this.slope) * blend;
     const R = CONFIG.TANK.RECOIL;
     const { kick, pulse, dir } = this.fx;
@@ -189,7 +216,7 @@ class Tank {
   }
 
   // 발사 반동. strength는 무기별 배율 (강력탄은 더 세게).
-  recoil(dirX, strength = 1) {
+  recoil(dirX: number, strength = 1): void {
     const R = CONFIG.TANK.RECOIL;
     const fx = this.fx;
     this.scene.tweens.killTweensOf(fx);
@@ -201,7 +228,7 @@ class Tank {
   }
 
   // 차체 경사를 반영한 총구 위치와 발사 방향.
-  muzzle(elevation = this.elevation) {
+  muzzle(elevation = this.elevation): Muzzle {
     const e = Phaser.Math.DegToRad(elevation);
     const sx = this.rigScale * -this.facing;
     const sy = this.rigScale;
@@ -222,7 +249,7 @@ class Tank {
     };
   }
 
-  damage(amount) {
+  damage(amount: number): void {
     if (this.dead || amount <= 0) return;
     this.hp = Math.max(0, this.hp - amount);
     this.scene.onTankDamaged(this, amount);
@@ -235,7 +262,7 @@ class Tank {
     if (this.hp === 0) this.die();
   }
 
-  die() {
+  die(): void {
     if (this.dead) return;
     this.dead = true;
     this.hp = 0;

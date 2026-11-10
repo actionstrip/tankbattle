@@ -1,7 +1,23 @@
 // CPU 조준: 후보 샷을 시뮬레이션해 상대와 가장 가까운 샷을 고르고 오차를 섞는다.
 // 파워 1의 차이가 착탄 지점을 30px 안팎 옮기므로 오차는 작게 둔다.
+import Phaser from 'phaser';
+import { CONFIG } from './config';
+import { simulateShot } from './projectile';
+import type { Tank } from './tank';
+import type { Terrain } from './terrain';
+
 const AI_ERROR = { ELEVATION: 1.5, POWER: 1.5 };
-function planAiShot(tank, enemy, wind, terrain, tanks) {
+
+export interface AiPlan {
+  facing: number;
+  weapon: number;
+  elevation: number;
+  power: number;
+}
+
+export function planAiShot(
+  tank: Tank, enemy: Tank, wind: number, terrain: Terrain, tanks: readonly Tank[],
+): AiPlan {
   const targetX = enemy.x;
   const targetY = enemy.y - CONFIG.TANK.HIT_CENTER_Y;
   const facing = enemy.x >= tank.x ? 1 : -1;
@@ -20,9 +36,9 @@ function planAiShot(tank, enemy, wind, terrain, tanks) {
   tank.facing = savedFacing;
 
   const usable = CONFIG.WEAPONS
-    .map((w, i) => i)
+    .map((_w, i) => i)
     .filter((i) => tank.stock[i] > 0);
-  const weapon = Phaser.Utils.Array.GetRandom(usable);
+  const weapon: number = Phaser.Utils.Array.GetRandom(usable);
 
   return {
     facing,

@@ -1,56 +1,84 @@
-// ---- 공통 UI 스타일 ----
-// 모든 화면(타이틀·게임·결과)이 같은 패널/글자 규칙을 쓰도록 한 곳에 모은다.
-const UI = {
-  PANEL: 0x0b1a2b,
-  PANEL_ALPHA: 0.78,
-  BORDER: 0xffffff,
-  BORDER_ALPHA: 0.14,
-  GOLD: 0xfbbf24,
-  GOLD_CSS: '#fbbf24',
-  TEXT: '#ffffff',
-  MUTED: '#9fb3c8',
-  DANGER: '#ff6b6b',
-  RADIUS: 12,
-  STROKE: '#0b1a2b',
-};
-
-// 반투명 남색 패널. accent를 주면 왼쪽에 색 띠를 단다.
-function uiPanel(g, x, y, w, h, { radius = UI.RADIUS, alpha = UI.PANEL_ALPHA, accent = null, border = true } = {}) {
-  g.fillStyle(UI.PANEL, alpha).fillRoundedRect(x, y, w, h, radius);
-  if (border) g.lineStyle(1.5, UI.BORDER, UI.BORDER_ALPHA).strokeRoundedRect(x, y, w, h, radius);
-  if (accent !== null) {
-    g.fillStyle(accent, 1).fillRoundedRect(x, y, 6, h, { tl: radius, bl: radius, tr: 0, br: 0 });
-  }
-}
-
-// 둥근 진행 바 (배경 + 채움)
-function uiBar(g, x, y, w, h, ratio, color, bg = 0x1e3348) {
-  const r = h / 2;
-  g.fillStyle(bg, 1).fillRoundedRect(x, y, w, h, r);
-  const fw = Math.max(0, Math.min(1, ratio)) * w;
-  if (fw >= h) g.fillStyle(color, 1).fillRoundedRect(x, y, fw, h, r);
-  else if (fw > 0) g.fillStyle(color, 1).fillCircle(x + r, y + r, Math.max(1, fw / 2));
-}
-
-// 글자 스타일 (크기 단계: 13 / 16 / 20 / 30)
-function uiText(scene, x, y, size, { color = UI.TEXT, bold = true, stroke = 0, align = 'left' } = {}) {
-  return scene.add.text(x, y, '', {
-    fontFamily: CONFIG.FONT, fontSize: `${size}px`, fontStyle: bold ? 'bold' : 'normal',
-    color, stroke: UI.STROKE, strokeThickness: stroke, align,
-  });
-}
-
 // 화면에 고정되는 UI(scrollFactor 0)와, 탱크를 따라다니는 월드 UI를 함께 관리한다.
-class Hud {
-  constructor(scene, tanks, terrain) {
+import Phaser from 'phaser';
+import { CONFIG } from './config';
+import type { Team } from './config';
+import { makeShell, shellContact, stepShell } from './projectile';
+import type { ShellState } from './projectile';
+import type { GameScene } from './scenes/GameScene';
+import type { Tank } from './tank';
+import type { Terrain } from './terrain';
+import { UI, uiBar, uiPanel, uiText } from './ui';
+import type { TextOptions } from './ui';
+
+interface Rect { x: number; y: number; w: number; h: number }
+
+interface CardRow {
+  tank: Tank;
+  name: Phaser.GameObjects.Text;
+  hp: Phaser.GameObjects.Text;
+  bar: { x: number; y: number; w: number };
+}
+
+interface WeaponSlot extends Rect {
+  key: Phaser.GameObjects.Text;
+  name: Phaser.GameObjects.Text;
+  left: Phaser.GameObjects.Text;
+}
+
+export interface HudState {
+  active: Tank | null;
+  wind: number;
+  timeLeft: number;
+  power: number;
+  weaponIndex: number;
+  isAi: boolean;
+  time: number;
+  shell: ShellState | null;
+}
+
+export class Hud {
+  private readonly scene: GameScene;
+  private readonly tanks: Tank[];
+  private readonly terrain: Terrain;
+  private readonly panels: Phaser.GameObjects.Graphics;
+  private readonly g: Phaser.GameObjects.Graphics;
+  private readonly world: Phaser.GameObjects.Graphics;
+  private readonly teamMode: boolean;
+  private readonly cards: { rows: CardRow[] }[];
+  private readonly timerPos: { x: number; y: number; r: number };
+  private readonly timer: Phaser.GameObjects.Text;
+  private readonly windBox: Rect;
+  private readonly windValue: Phaser.GameObjects.Text;
+  private readonly bannerBg: Phaser.GameObjects.Graphics;
+  private readonly banner: Phaser.GameObjects.Text;
+  private readonly bottomItems: (Phaser.GameObjects.Text | Phaser.GameObjects.Zone)[] = [];
+  private readonly bottomPanel: Phaser.GameObjects.Graphics;
+  private readonly activeName: Phaser.GameObjects.Text;
+  private readonly stats: Phaser.GameObjects.Text;
+  private readonly moveBar: Rect;
+  private readonly powerBar: Rect;
+  private hoverSlot = -1;
+  private readonly slots: WeaponSlot[];
+  private readonly mini: Rect;
+  private readonly fps: Phaser.GameObjects.Text;
+  private fpsAt = 0;
+  private readonly miniTex: Phaser.Textures.CanvasTexture;
+  private miniVersion = -1;
+  private readonly arrowFrames: string[];
+  private readonly arrow: Phaser.GameObjects.Image;
+  private readonly tags: Phaser.GameObjects.Text[];
+
+  constructor(scene: GameScene, tanks: Tank[], terrain: Terrain) {
     this.scene = scene;
     this.tanks = tanks;
     this.terrain = terrain;
     const D = CONFIG.DEPTH.HUD;
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
-    const fixed = (o, depth = D + 1) => o.setScrollFactor(0).setDepth(depth);
-    const text = (x, y, size, opts) => fixed(uiText(scene, x, y, size, opts));
+    const fixed = <T extends Phaser.GameObjects.Components.ScrollFactor & Phaser.GameObjects.Components.Depth>(
+      o: T, depth = D + 1,
+    ): T => { o.setScrollFactor(0).setDepth(depth); return o; };
+    const text = (x: number, y: number, size: number, opts?: TextOptions) => fixed(uiText(scene, x, y, size, opts));
 
     this.panels = fixed(scene.add.graphics(), D);       // 고정 패널 배경 (한 번만 그림)
     this.g = fixed(scene.add.graphics(), D + 0.5);       // 매 프레임 바뀌는 막대·표시
@@ -58,7 +86,7 @@ class Hud {
     this.teamMode = tanks.length > 2;
 
     // ---- 상단 좌우: 팀 카드 (이름 + 소속 탱크 체력) ----
-    this.cards = ['blue', 'red'].map((team, side) => {
+    this.cards = (['blue', 'red'] as Team[]).map((team, side) => {
       const members = tanks.filter((t) => t.player.team === team);
       const w = 270;
       const h = 40 + members.length * 22;
@@ -93,13 +121,14 @@ class Hud {
     // 좌우 패널(안내·미니맵) 폭 SIDE_W, 사이 간격 GAP_X로 가운데 패널이 남는 폭을 채운다.
     const SIDE_W = 272;
     const GAP_X = 14;
-    const P = { h: 118 };
-    P.x = 16 + SIDE_W + GAP_X;
-    P.w = W - P.x * 2;
-    P.y = H - 14 - P.h;
-    this.bottomBox = P;
-    this.bottomItems = [];
-    const btext = (x, y, size, opts) => { const t = text(x, y, size, opts); this.bottomItems.push(t); return t; };
+    const ph = 118;
+    const px = 16 + SIDE_W + GAP_X;
+    const P: Rect = { x: px, y: H - 14 - ph, w: W - px * 2, h: ph };
+    const btext = (x: number, y: number, size: number, opts?: TextOptions) => {
+      const t = text(x, y, size, opts);
+      this.bottomItems.push(t);
+      return t;
+    };
     this.bottomPanel = fixed(scene.add.graphics(), D);
     uiPanel(this.bottomPanel, P.x, P.y, P.w, P.h);
     this.activeName = btext(P.x + 18, P.y + 10, 18);
@@ -110,7 +139,6 @@ class Hud {
     btext(P.x + 232, P.y + 40, 13, { color: UI.MUTED }).setText('파워');
 
     // 무기 슬롯 3칸
-    this.hoverSlot = -1;
     const gap = 8;
     const sw = (P.w - 36 - gap * 2) / 3;
     this.slots = CONFIG.WEAPONS.map((w, i) => {
@@ -133,7 +161,7 @@ class Hud {
 
     // ---- 하단 왼쪽: 조작 안내 ----
     // 하단 세 패널(안내·조작·미니맵)은 높이와 윗선을 맞춘다.
-    const help = { x: 16, y: P.y, w: SIDE_W, h: P.h };
+    const help: Rect = { x: 16, y: P.y, w: SIDE_W, h: P.h };
     uiPanel(this.panels, help.x, help.y, help.w, help.h);
     text(help.x + 16, help.y + 10, 13, { color: UI.MUTED }).setText('조작 방법');
     const helpLines = [
@@ -152,22 +180,20 @@ class Hud {
     });
 
     // ---- 하단 오른쪽: 미니맵 ----
-    this.mini = { w: 256, h: 77 };
-    const mp = { x: W - 16 - SIDE_W, y: P.y, w: SIDE_W, h: P.h };
-    this.mini.x = mp.x + 8;
-    this.mini.y = mp.y + mp.h - 8 - this.mini.h;
+    const mp: Rect = { x: W - 16 - SIDE_W, y: P.y, w: SIDE_W, h: P.h };
+    const miniW = 256;
+    const miniH = 77;
+    this.mini = { x: mp.x + 8, y: mp.y + mp.h - 8 - miniH, w: miniW, h: miniH };
     uiPanel(this.panels, mp.x, mp.y, mp.w, mp.h);
     text(mp.x + 16, mp.y + 10, 13, { color: UI.MUTED }).setText('미니맵');
     // FPS 표시 (미니맵 패널 제목줄 오른쪽). 0.5초마다 갱신.
     this.fps = text(mp.x + mp.w - 14, mp.y + 10, 13).setOrigin(1, 0);
-    this.fpsAt = 0;
     if (scene.textures.exists('minimap')) scene.textures.remove('minimap');
-    this.miniTex = scene.textures.createCanvas('minimap', this.mini.w, this.mini.h);
+    this.miniTex = scene.textures.createCanvas('minimap', this.mini.w, this.mini.h)!;
     fixed(scene.add.image(this.mini.x, this.mini.y, 'minimap').setOrigin(0), D + 0.2);
-    this.miniVersion = -1;
 
     // ---- 월드 UI: 화살표, 이름표 ----
-    this.arrowFrames = scene.registry.get('arrowFrames');
+    this.arrowFrames = scene.registry.get('arrowFrames') as string[];
     this.arrow = scene.add.image(0, 0, 'arrow', this.arrowFrames[0])
       .setOrigin(0.5, 1).setScale(CONFIG.TANK.MARKER_SCALE)
       .setDepth(CONFIG.DEPTH.WORLD_UI).setVisible(false);
@@ -176,7 +202,7 @@ class Hud {
       .setText(t.player.name).setOrigin(0.5, 0).setDepth(CONFIG.DEPTH.WORLD_UI)) : [];
   }
 
-  showBanner(message) {
+  showBanner(message: string): void {
     const W = CONFIG.GAME_W;
     this.banner.setText(message);
     const w = this.banner.width + 64;
@@ -191,7 +217,7 @@ class Hud {
   }
 
   // 게임이 끝나면 하단 조작 패널과 배너를 숨긴다.
-  hideTurnInfo() {
+  hideTurnInfo(): void {
     this.scene.tweens.killTweensOf([this.banner, this.bannerBg]);
     this.banner.setAlpha(0);
     this.bannerBg.setAlpha(0);
@@ -202,7 +228,7 @@ class Hud {
     }
   }
 
-  update({ active, wind, timeLeft, power, weaponIndex, isAi, time, shell }) {
+  update({ active, wind, timeLeft, power, weaponIndex, isAi, time, shell }: HudState): void {
     const g = this.g;
     g.clear();
     this.world.clear();
@@ -232,7 +258,7 @@ class Hud {
     }
   }
 
-  drawTeamCards(g) {
+  private drawTeamCards(g: Phaser.GameObjects.Graphics): void {
     for (const card of this.cards) {
       for (const r of card.rows) {
         const hp = Math.max(0, r.tank.hp);
@@ -245,7 +271,7 @@ class Hud {
     }
   }
 
-  drawTimer(g, timeLeft) {
+  private drawTimer(g: Phaser.GameObjects.Graphics, timeLeft: number): void {
     const { x, y, r } = this.timerPos;
     const left = Math.max(0, timeLeft);
     const urgent = left <= 5;
@@ -262,7 +288,7 @@ class Hud {
     this.timer.setText(`${Math.ceil(left)}`).setColor(urgent ? UI.DANGER : UI.TEXT);
   }
 
-  drawWind(g, wind) {
+  private drawWind(g: Phaser.GameObjects.Graphics, wind: number): void {
     const b = this.windBox;
     const cx = b.x + b.w / 2 + 4;
     const half = 66;
@@ -280,7 +306,7 @@ class Hud {
     this.windValue.setText(wind === 0 ? '없음' : `${wind > 0 ? '→' : '←'} ${Math.abs(wind)}`);
   }
 
-  drawBottom(g, tank, power, weaponIndex, isAi) {
+  private drawBottom(g: Phaser.GameObjects.Graphics, tank: Tank, power: number, weaponIndex: number, isAi: boolean): void {
     this.activeName.setText(`${tank.player.name}${isAi ? '  CPU' : ''}`)
       .setColor(Phaser.Display.Color.IntegerToColor(tank.player.color).rgba);
     const tilt = Math.round(Phaser.Math.RadToDeg(-tank.slope * tank.facing));
@@ -318,7 +344,7 @@ class Hud {
   }
 
   // 탱크 바로 아래에 붙는 에너지 바
-  drawTankHpBar(g, tank) {
+  private drawTankHpBar(g: Phaser.GameObjects.Graphics, tank: Tank): void {
     const w = 52;
     const x = tank.x - w / 2;
     const y = tank.y + 8;
@@ -326,7 +352,7 @@ class Hud {
     uiBar(g, x, y, w, 5, tank.hp / CONFIG.TANK.MAX_HP, tank.player.color, 0x1e3348);
   }
 
-  drawMinimap(g) {
+  private drawMinimap(g: Phaser.GameObjects.Graphics): void {
     const m = this.mini;
     const sx = m.w / CONFIG.WORLD_W;
     const sy = m.h / CONFIG.WORLD_H;
@@ -336,7 +362,7 @@ class Hud {
       ctx.clearRect(0, 0, m.w, m.h);
       ctx.fillStyle = 'rgba(30, 51, 72, 0.9)';
       ctx.fillRect(0, 0, m.w, m.h);
-      ctx.drawImage(this.terrain.texture.getSourceImage(), 0, 0, m.w, m.h);
+      ctx.drawImage(this.terrain.texture.getSourceImage() as HTMLCanvasElement, 0, 0, m.w, m.h);
       this.miniTex.refresh();
     }
     const cam = this.scene.cameras.main;
@@ -351,7 +377,7 @@ class Hud {
   }
 
   // 화면 위로 올라간 포탄의 가로 위치를 상단에 표시한다.
-  drawShellIndicator(g, shell) {
+  private drawShellIndicator(g: Phaser.GameObjects.Graphics, shell: ShellState): void {
     if (shell.y >= 0) return;
     const cam = this.scene.cameras.main;
     const x = Phaser.Math.Clamp(shell.x - cam.scrollX, 12, CONFIG.GAME_W - 12);
@@ -360,7 +386,7 @@ class Hud {
 
   // 조종 중인 탱크 위 화살표 (arrow.png 회전 프레임을 돌려 가며 표시).
   // 높이는 포신을 90°로 세웠을 때 총구 끝보다 MARKER_GAP 위로 잡아 부딪히지 않게 한다.
-  drawMarker(tank, time) {
+  private drawMarker(tank: Tank, time: number): void {
     const M = CONFIG.TANK;
     const s = tank.rigScale;
     const barrelTop = -tank.pivot.y * s + tank.barrelLength * s; // 탱크 바닥에서 세운 총구 끝까지
@@ -373,7 +399,7 @@ class Hud {
 
   // 예상 탄도의 앞 GUIDE_RATIO만큼을 점선으로 그린다 (바람 포함).
   // 충전 중이면 현재 파워, 아니면 지난번 파워(없으면 50) 기준.
-  drawGuide(g, tank, power, wind) {
+  private drawGuide(g: Phaser.GameObjects.Graphics, tank: Tank, power: number, wind: number): void {
     const GUIDE_RATIO = 0.7;
     const p = power > 0 ? power : (tank.lastPower ?? 50);
     const s = makeShell(tank.muzzle(), p);

@@ -1,6 +1,76 @@
 // 게임 전역 상수.
 // 화면(GAME)은 1280×768, 월드(WORLD)는 땅 레이어 크기인 2560×768이다.
-const CONFIG = {
+
+export type WeaponKey = 'normal' | 'heavy' | 'triple';
+
+export interface Weapon {
+  key: WeaponKey;
+  name: string;
+  damage: number;
+  radius: number;
+  stock: number;
+  shells: number;
+  /** 포탄 크기 배율 */
+  scale?: number;
+  /** 포탄 주위에 도는 빛 색 */
+  glow?: number;
+  /** 발사 반동 배율 */
+  recoil?: number;
+}
+
+export type Team = 'blue' | 'red';
+
+export interface PlayerDef {
+  name: string;
+  team: Team;
+  color: number;
+  sprite: string;
+  spawnX: number;
+  facing: number; // -1 | 1
+}
+
+export interface Player extends PlayerDef {
+  ai: boolean;
+}
+
+export type GameMode = 'cpu' | '2p' | '2v2' | '2v2hot';
+
+export interface ModeDef {
+  /** 2:2 팀전 여부 */
+  team: boolean;
+  /** 레드팀을 CPU가 조종 */
+  redAi: boolean;
+}
+
+const WEAPONS: Weapon[] = [
+  { key: 'normal', name: '일반탄', damage: 35, radius: 45, stock: Infinity, shells: 1 },
+  { key: 'heavy', name: '강력탄', damage: 55, radius: 75, stock: 2, shells: 1, scale: 1.5, glow: 0x15803d, recoil: 1.6 },
+  { key: 'triple', name: '3연발', damage: 18, radius: 30, stock: 2, shells: 3 },
+];
+
+// 양 끝 울타리(땅 레이어에 포함되어 단단함) 바로 안쪽에서 생성한다.
+const PLAYERS: PlayerDef[] = [
+  { name: '블루', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
+  { name: '레드', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
+];
+
+// 2:2 팀전. 배열 순서가 턴 순서다 (팀 번갈아). 2대는 서로 다른 발판에 둔다.
+const TEAM_PLAYERS: PlayerDef[] = [
+  { name: '블루1', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
+  { name: '레드1', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
+  { name: '블루2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
+  { name: '레드2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
+];
+
+// 게임 모드: team = 2:2 팀전 여부, redAi = 레드팀을 CPU가 조종
+const MODES: Record<GameMode, ModeDef> = {
+  cpu: { team: false, redAi: true },
+  '2p': { team: false, redAi: false },
+  '2v2': { team: true, redAi: true },
+  '2v2hot': { team: true, redAi: false },
+};
+
+export const CONFIG = {
   GAME_W: 1280,
   GAME_H: 768,
   WORLD_W: 2560,
@@ -83,40 +153,19 @@ const CONFIG = {
   TURN_SECONDS: 30,
   CHARGE_SPEED: 65,    // 파워/초
 
-  WEAPONS: [
-    { key: 'normal', name: '일반탄', damage: 35, radius: 45, stock: Infinity, shells: 1 },
-    // scale = 포탄 크기 배율, glow = 포탄 주위에 도는 빛 색
-    { key: 'heavy',  name: '강력탄', damage: 55, radius: 75, stock: 2, shells: 1, scale: 1.5, glow: 0x15803d, recoil: 1.6 },
-    { key: 'triple', name: '3연발',  damage: 18, radius: 30, stock: 2, shells: 3 },
-  ],
+  WEAPONS,
   TRIPLE_SPREAD: 3,    // 도
 
-  // 양 끝 울타리(땅 레이어에 포함되어 단단함) 바로 안쪽에서 생성한다.
-  PLAYERS: [
-    { name: '블루', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
-    { name: '레드', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
-  ],
-  // 2:2 팀전. 배열 순서가 턴 순서다 (팀 번갈아). 2대는 서로 다른 발판에 둔다.
-  TEAM_PLAYERS: [
-    { name: '블루1', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 290, facing: 1 },
-    { name: '레드1', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 2270, facing: -1 },
-    { name: '블루2', team: 'blue', color: 0x3b82f6, sprite: 'blue', spawnX: 770, facing: 1 },
-    { name: '레드2', team: 'red', color: 0xef4444, sprite: 'red', spawnX: 1720, facing: -1 },
-  ],
-  // 게임 모드: team = 2:2 팀전 여부, redAi = 레드팀을 CPU가 조종
-  MODES: {
-    cpu:    { team: false, redAi: true },
-    '2p':   { team: false, redAi: false },
-    '2v2':  { team: true,  redAi: true },
-    '2v2hot': { team: true, redAi: false },
-  },
+  PLAYERS,
+  TEAM_PLAYERS,
+  MODES,
   // 시작 위치는 발판마다 한 대씩 무작위 (위 spawnX는 발판을 못 찾을 때만 쓰임)
   SPAWN: {
     MIN_PLATFORM: 120, // 이보다 좁은 발판에는 놓지 않는다 (px)
     EDGE: 45,          // 발판 끝에서 이만큼 안쪽에 놓는다
     MIN_GAP: 110,      // 같은 발판에 둘 이상 놓아야 할 때 최소 간격
   },
-  TEAMS: { blue: '블루팀', red: '레드팀' },
+  TEAMS: { blue: '블루팀', red: '레드팀' } as Record<Team, string>,
 
   SNOW: {
     COUNT: 160,          // 화면에 떠 있는 눈송이 수

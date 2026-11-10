@@ -1,5 +1,21 @@
 // 탄 궤적 계산. 게임 진행과 CPU 조준이 같은 코드를 써서 예측이 어긋나지 않는다.
-function makeShell(muzzle, power) {
+import { CONFIG } from './config';
+import type { Tank } from './tank';
+import type { Terrain } from './terrain';
+
+export interface Muzzle { x: number; y: number; dirX: number; dirY: number }
+
+export interface ShellState {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  age: number;
+}
+
+export type HitKind = 'tank' | 'ground' | 'out';
+
+export function makeShell(muzzle: Muzzle, power: number): ShellState {
   const speed = power * CONFIG.PHYSICS.POWER_TO_SPEED;
   return {
     x: muzzle.x,
@@ -10,7 +26,7 @@ function makeShell(muzzle, power) {
   };
 }
 
-function stepShell(s, wind) {
+export function stepShell(s: ShellState, wind: number): void {
   const P = CONFIG.PHYSICS;
   s.vx += wind * P.WIND_ACCEL * P.STEP;
   s.vy += P.GRAVITY * P.STEP;
@@ -19,8 +35,9 @@ function stepShell(s, wind) {
   s.age += P.STEP;
 }
 
-// 'tank' | 'ground' | 'out' | null
-function shellContact(s, terrain, tanks, owner) {
+export function shellContact(
+  s: ShellState, terrain: Terrain, tanks: readonly Tank[], owner: Tank | null,
+): HitKind | null {
   const T = CONFIG.TANK;
   for (const t of tanks) {
     if (t.dead) continue;
@@ -37,9 +54,11 @@ function shellContact(s, terrain, tanks, owner) {
 }
 
 // 지형을 바꾸지 않고 착탄 지점만 구한다.
-function simulateShot(muzzle, power, wind, terrain, tanks, owner) {
+export function simulateShot(
+  muzzle: Muzzle, power: number, wind: number, terrain: Terrain, tanks: readonly Tank[], owner: Tank,
+): { x: number; y: number; hit: HitKind } {
   const s = makeShell(muzzle, power);
-  let hit = null;
+  let hit: HitKind | null = null;
   while (!hit) {
     stepShell(s, wind);
     hit = shellContact(s, terrain, tanks, owner);

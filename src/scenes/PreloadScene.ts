@@ -1,7 +1,11 @@
-class PreloadScene extends Phaser.Scene {
+import Phaser from 'phaser';
+import { CONFIG } from '../config';
+import { TANK_SHEET, sliceArrow, sliceTanks } from '../tankSlicer';
+
+export class PreloadScene extends Phaser.Scene {
   constructor() { super('Preload'); }
 
-  preload() {
+  preload(): void {
     this.load.image('bg', CONFIG.STAGE.BG);
     this.load.image('ground', CONFIG.STAGE.GROUND);
     for (const name of TANK_SHEET.COLORS) {
@@ -12,14 +16,14 @@ class PreloadScene extends Phaser.Scene {
     this.load.image('logo', 'images/logo/logo.png');
 
     const bar = this.add.rectangle(CONFIG.GAME_W / 2, CONFIG.GAME_H / 2, 1, 16, 0xfbbf24);
-    this.load.on('progress', (v) => { bar.width = 600 * v; });
+    this.load.on('progress', (v: number) => { bar.width = 600 * v; });
   }
 
-  create() {
+  create(): void {
     this.registry.set('barrelInfo', sliceTanks(this));
     this.registry.set('arrowFrames', sliceArrow(this));
 
-    const dot = this.textures.createCanvas('dot', 32, 32);
+    const dot = this.textures.createCanvas('dot', 32, 32)!;
     const grad = dot.context.createRadialGradient(16, 16, 1, 16, 16, 16);
     grad.addColorStop(0, 'rgba(255,255,255,1)');
     grad.addColorStop(0.5, 'rgba(255,255,255,0.8)');
@@ -28,7 +32,7 @@ class PreloadScene extends Phaser.Scene {
     dot.context.fillRect(0, 0, 32, 32);
     dot.refresh();
 
-    const shell = this.textures.createCanvas('shell', 26, 14);
+    const shell = this.textures.createCanvas('shell', 26, 14)!;
     const c = shell.context;
     c.fillStyle = '#20252b';
     c.beginPath();

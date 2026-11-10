@@ -1,19 +1,25 @@
-class TitleScene extends Phaser.Scene {
+import Phaser from 'phaser';
+import { CONFIG } from '../config';
+import type { GameMode } from '../config';
+import { Sfx } from '../sound';
+import { sourceImage } from '../tankSlicer';
+import { UI, addFixedBackground, uiPanel, uiText } from '../ui';
+
+export class TitleScene extends Phaser.Scene {
   constructor() { super('Title'); }
 
-  create() {
+  create(): void {
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     addFixedBackground(this);
 
-
     // 맵 전체가 보이도록 땅을 화면 폭에 맞춰 하단 정렬로 깐다.
-    const ground = this.textures.get('ground').getSourceImage();
+    const ground = sourceImage(this, 'ground');
     this.add.image(0, H, 'ground').setOrigin(0, 1).setScale(W / ground.width);
     this.add.rectangle(0, 0, W, H, 0x0b1a2b, 0.45).setOrigin(0);
 
     // 로고: 살짝 위아래로 떠 있는 느낌
-    const logoSrc = this.textures.get('logo').getSourceImage();
+    const logoSrc = sourceImage(this, 'logo');
     const logo = this.add.image(W / 2, 200, 'logo').setScale(600 / logoSrc.width);
     this.tweens.add({ targets: logo, y: 190, duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });
 
@@ -55,10 +61,11 @@ class TitleScene extends Phaser.Scene {
     else this.showSoundPrompt(startMusic);
   }
 
-  showSoundPrompt(onClose) {
+  private showSoundPrompt(onClose: () => void): void {
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     const D = CONFIG.DEPTH.OVERLAY;
+    const keyboard = this.input.keyboard!;
     // 화면 전체를 덮어 뒤의 메뉴 버튼이 눌리지 않게 한다.
     const dim = this.add.rectangle(0, 0, W, H, 0x000000, 0.6).setOrigin(0).setDepth(D)
       .setInteractive();
@@ -92,10 +99,10 @@ class TitleScene extends Phaser.Scene {
     const close = () => {
       if (closed) return;
       closed = true;
-      this.input.keyboard.off('keydown', close);
+      keyboard.off('keydown', close);
       blink.remove();
       // 이 입력으로 오디오가 열린다 (howler도 자동으로 열지만 확실히 한 번 더)
-      if (window.Howler?.ctx?.state === 'suspended') Howler.ctx.resume();
+      Sfx.unlock();
       this.registry.set('soundUnlocked', true);
       Sfx.play('ui_click');
       this.tweens.add({
@@ -107,14 +114,14 @@ class TitleScene extends Phaser.Scene {
       onClose();
     };
     dim.on('pointerup', close);
-    this.input.keyboard.on('keydown', close);
+    keyboard.on('keydown', close);
   }
 
-  addButton(x, y, label, sub, onClick) {
+  private addButton(x: number, y: number, label: string, sub: string, onClick: () => void): void {
     const w = 380;
     const h = 64;
     const g = this.add.graphics();
-    const draw = (hover) => {
+    const draw = (hover: boolean) => {
       g.clear();
       g.fillStyle(UI.PANEL, hover ? 0.95 : 0.82).fillRoundedRect(x - w / 2, y - h / 2, w, h, 14);
       g.lineStyle(hover ? 3 : 2, UI.GOLD, hover ? 1 : 0.7).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 14);
@@ -130,7 +137,7 @@ class TitleScene extends Phaser.Scene {
     zone.on('pointerup', onClick);
   }
 
-  begin(mode) {
+  private begin(mode: GameMode): void {
     Sfx.play('ui_click');
     this.scene.start('Game', { mode });
   }
