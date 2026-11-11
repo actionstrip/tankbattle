@@ -1,0 +1,21 @@
+{
+  "name": "@fortress/client",
+  "private": true,
+  "version": "0.1.0",
+  "description": "포트리스 클라이언트 (Phaser 4 + TypeScript + Vite)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "howler": "^2.2.4",
+    "phaser": "4.1.0"
+  },
+  "devDependencies": {
+    "@types/howler": "^2.2.13",
+    "vite": "^8.3.7"
+  }
+}

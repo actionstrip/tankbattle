@@ -2,27 +2,24 @@
   "name": "fortress",
   "private": true,
   "version": "0.1.0",
-  "description": "포트리스 샘플 (Phaser 4 + TypeScript + Vite)",
+  "description": "포트리스 모노레포 (클라이언트 + Colyseus 서버 + 공용 로직)",
   "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "dev": "npm run dev -w @fortress/client",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
-  "dependencies": {
-    "howler": "^2.2.4",
-    "phaser": "4.1.0"
-  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/howler": "^2.2.13",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.2",
-    "vite": "^8.3.7"
+    "typescript-eslint": "^8.72.2"
   }
 }
