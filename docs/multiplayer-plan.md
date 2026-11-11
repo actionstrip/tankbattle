@@ -26,7 +26,7 @@
 | 지형 마스크 | **빌드 때 미리 만든 마스크 파일**(`ground.mask`, RLE)을 양쪽이 같이 사용 | 브라우저 canvas 확대 결과가 서버와 달라지는 문제 제거 |
 | 서버 빌드 | **tsup(esbuild)으로 `build/index.js` 한 파일로 묶기** (shared 코드 포함) | Cloud가 서버 폴더만 빌드해도 workspace 의존성 문제가 없음 |
 | 타입 공유 | 클라가 `import type { server }`로 서버 정의를 가져와 `new Client<typeof server>()` | 방 이름·옵션·상태·메시지 타입이 서버와 자동으로 맞음 (type-only라 번들에 서버 코드가 안 들어감) |
-| 로컬 운영 | IIS = 클라 정적 파일 + **ARR 리버스 프록시(WebSocket)** → Node 서버(:2567), Node는 **PM2** | Cloud와 같은 "한 주소 + wss" 구조를 로컬에서 미리 맞춤. iisnode는 관리가 끊겨 사용 안 함 |
+| 로컬 운영 | IIS = 클라 정적 파일만, 브라우저가 게임 서버(:2567)에 **직접** 접속. Node는 **PM2** | 리버스 프록시(URL Rewrite·ARR) 없이 단순하게. 방화벽 80·2567 인바운드 필요. https로 서비스하려면 게임 서버도 wss 인증서가 필요 (지금은 http로만) |
 
 ## 2. 폴더 구조
 
@@ -136,11 +136,30 @@ fortress/
 - 클라 정적 파일은 Cloud로 옮기지 않는다 (Cloud는 게임 서버 전용) → IIS 또는 정적 호스팅에 그대로
 - 이전 시점에 `https://docs.colyseus.io/cloud.md`, `deployment.md`를 다시 확인
 
-## 8. IIS 로컬 구성 (준비할 것)
-- IIS 기능: **WebSocket 프로토콜** 켜기, **URL Rewrite**, **Application Request Routing(ARR)** 설치 후 프록시 사용 켜기
-- `deploy/iis/web.config`: `/colyseus/*` → `http://localhost:2567/*` 리라이트 (WebSocket 업그레이드 포함), 그 외는 정적 파일
-- 개발 중에는 IIS 없이 `npm run dev`(Vite 5173 + 서버 2567)로 작업하고, IIS는 "배포 연습" 용도
-- 다른 PC에서 접속 테스트 시 Windows 방화벽에서 80(IIS) 포트 허용
+## 8. IIS 로컬 운영 (리버스 프록시 없음)
+```
+브라우저 ──80──▶ IIS        : 클라이언트 정적 파일 (apps/client/dist)
+브라우저 ──2567──▶ 게임 서버 : Colyseus (PM2 상시 실행, 방 찾기 + WebSocket)
+```
+- IIS 기본 사이트가 `E:\inetpub\wwwroot` 전체를 내보내므로 따로 설정 없이 **`http://<호스트>/test/pixi_ai/fortress/apps/client/dist/`** 로 열린다.
+- 저장소 폴더의 `web.config`가 소스·설정 파일(`.ts`, `package.json`, `src/`, `node_modules/` 등)을 404로 숨기고, `apps/client/public/web.config`(빌드 시 dist로 복사)가 캐시를 정한다 (`index.html` 캐시 안 함, `assets/*.js` 1년).
+- 클라이언트 운영 빌드는 `.env.production`의 `VITE_SERVER_URL`이 비어 있으면 **페이지를 연 호스트의 2567 포트**로 접속한다 (`http://10.1.7.63/...` → `http://10.1.7.63:2567`).
+- 게임 서버는 페이지 출처를 허용(CORS)한다 — 확인함.
+- 방화벽: 80(IIS 기본 규칙), **2567 인바운드** 허용. 외부 인터넷이면 공유기 포트포워딩 80·2567.
+- **https 주의**: 페이지를 https로 열면 브라우저가 `ws://`를 막는다. 그때는 게임 서버도 2567에서 인증서로 wss를 열어야 한다 (지금은 http 전용).
+
+### 배포·운영 명령 (프로젝트 루트)
+- `npm run server:start` — 클라이언트·서버 빌드 → PM2로 게임 서버 시작(이미 떠 있으면 무중단 재시작) → 목록 저장
+- `npm run server:status` / `npm run server:logs` / `npm run server:stop`
+- 클라이언트만 바꿨으면 `npm run build -w @fortress/client` 만 해도 IIS에 바로 반영된다.
+- 개발용 `npm run dev`와 같은 2567 포트를 쓰므로 **둘 중 하나만** 띄운다.
+
+### PC를 켤 때 자동 실행 (선택)
+Windows에서는 `pm2 startup`이 동작하지 않는다. 로그온할 때 저장된 목록을 되살리도록 작업 스케줄러에 등록한다:
+```
+schtasks /Create /TN "fortress-pm2" /SC ONLOGON /TR "cmd /c cd /d E:\inetpub\wwwroot\test\pixi_ai\fortress && npx pm2 resurrect"
+```
+(로그온하지 않아도 돌게 하려면 Windows 서비스로 등록해야 한다: pm2-installer 등. 필요해지면 그때.)
 
 ## 9. 확인 방법
 - 1~2단계 후: `npm run dev -w client`로 기존 CPU 대전·핫시트·2:2가 그대로 되는지, `npm run typecheck`·`npm run lint` 통과
@@ -156,7 +175,8 @@ fortress/
 | 2. shared 분리 | 완료 | `6d26198` |
 | 3. 서버 뼈대 | 완료 | `783abb5` |
 | 4. 온라인 대전 | 완료 | `7397b75`(서버) + 클라이언트 커밋 |
-| 5. 로컬 운영 (IIS) | 다음 | |
+| 5. 로컬 운영 (IIS, 프록시 없음) | 완료 (PM2 첫 실행은 사용자 확인 후) | 이 단계 커밋 |
+| 6. Cloud 이전 준비 확인 | 다음 | |
 
 ### 실행 명령
 - `npm run dev` — 서버(2567) + 클라이언트(5173) 함께 실행

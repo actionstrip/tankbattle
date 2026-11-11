@@ -18,13 +18,18 @@
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "build:mask": "node tools/build-mask.mjs"
+    "build:mask": "node tools/build-mask.mjs",
+    "server:start": "npm run build && pm2 startOrReload apps/server/ecosystem.config.cjs --env production && pm2 save",
+    "server:stop": "pm2 stop fortress-server",
+    "server:status": "pm2 status",
+    "server:logs": "pm2 logs fortress-server --lines 100"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "concurrently": "^10.0.7",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
+    "pm2": "^7.1.2",
     "pngjs": "^7.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2"
