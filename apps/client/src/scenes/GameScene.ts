@@ -1,11 +1,13 @@
 import Phaser from 'phaser';
 import {
-  Rng, blastOf, digBehindTank, makeShell, planAiShot, randomSeed, randomizeSpawns, shellContact, splashDamage, stepShell,
+  Rng, blastOf, decodeStock, digBehindTank, makeShell, planAiShot, randomSeed, randomizeSpawns, shellContact,
+  shellOffsets, splashDamage, stepShell,
 } from '@fortress/shared';
-import type { AiPlan, HitKind, ShellState } from '@fortress/shared';
+import type { AiPlan, HitKind, ShellImpact, ShellState, ShotMessage, TerrainOp } from '@fortress/shared';
 import { CONFIG } from '../config';
 import type { GameMode, Player, Team, Weapon, WeaponKey } from '../config';
 import { Hud } from '../hud';
+import type { GameRoom, NetSession } from '../net/session';
 import { Snow } from '../snow';
 import { Sfx } from '../sound';
 import type { SfxId } from '../sound';
@@ -14,7 +16,8 @@ import type { BarrelInfo } from '../tankSlicer';
 import { Terrain } from '../terrain';
 import { UI, addFixedBackground, uiPanel, uiText } from '../ui';
 
-type GameState = 'idle' | 'intro' | 'aiming' | 'charging' | 'flying' | 'resolving' | 'gameover';
+// waiting = (온라인) 발사를 보내고 서버 판정을 기다리는 중
+type GameState = 'idle' | 'intro' | 'aiming' | 'charging' | 'waiting' | 'flying' | 'resolving' | 'gameover';
 
 /** 날아가는 중인 포탄 (궤적 상태 + 표시 객체) */
 interface Shell extends ShellState {
@@ -23,7 +26,13 @@ interface Shell extends ShellState {
   sprite: Phaser.GameObjects.Image;
   glow?: Phaser.GameObjects.Image;
   trail: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** (온라인) 서버가 정한 착탄. 이 스텝 수가 되면 그 자리에서 터진다 */
+  impact?: ShellImpact;
+  steps: number;
 }
+
+/** 온라인: 조준 각도를 서버에 보내는 최소 간격 (ms) */
+const AIM_SEND_MS = 80;
 
 // 무기별 폭발음
 const EXPLODE_SFX: Record<WeaponKey, SfxId> = {
@@ -69,11 +78,37 @@ export class GameScene extends Phaser.Scene {
   private debugG?: Phaser.GameObjects.Graphics;
   private debugVersion = -1;
 
+  // ---- 온라인 (net이 있으면 서버가 판정하고, 이 화면은 입력 전달·연출만) ----
+  private net: NetSession | null = null;
+  /** 서버에서 받은 턴 번호 중 화면에 반영한 마지막 값 */
+  private shownTurn = 0;
+  /** 연출이 끝나기 전에 도착한 발사 결과 */
+  private pendingShot: ShotMessage | null = null;
+  /** 지형 변경 기록 중 화면에 반영한 개수 (재접속 시 나머지를 받아 적용) */
+  private appliedOps = 0;
+  private sentMoveDir = 0;
+  private sentAim = { value: -1, at: 0 };
+  private netCleanup: (() => void)[] = [];
+  private dropNotice: Phaser.GameObjects.Text | null = null;
+
   constructor() { super('Game'); }
 
-  init(data: { mode?: GameMode }): void {
-    this.mode = data.mode || 'cpu';
+  init(data: { mode?: GameMode | 'online'; net?: NetSession }): void {
+    this.net = data.mode === 'online' && data.net?.room ? data.net : null;
+    this.mode = this.net ? '2p' : (data.mode as GameMode) || 'cpu';
   }
+
+  private get room(): GameRoom { return this.net!.room!; }
+
+  /** 온라인에서 지금 차례가 내 탱크인지 */
+  private get isMyTurn(): boolean {
+    if (!this.net) return true;
+    const s = this.room.state.tanks[this.activeIndex];
+    return !!s && s.owner === this.room.sessionId;
+  }
+
+  /** 이 화면에서 직접 조작하는 차례인지 (로컬 사람 차례 또는 온라인 내 차례) */
+  private get controlling(): boolean { return !this.ai && this.isMyTurn; }
 
   create(): void {
     addFixedBackground(this);
@@ -83,10 +118,18 @@ export class GameScene extends Phaser.Scene {
     // 모드별 참가자
     //   cpu = 1P vs CPU, 2p = 1:1 핫시트,
     //   2v2 = 블루팀(사람 2명) vs 레드팀(CPU 2대), 2v2hot = 2:2 핫시트(4명 모두 사람)
-    const M = CONFIG.MODES[this.mode] || CONFIG.MODES.cpu;
-    const players: Player[] = (M.team ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
-      .map((p) => ({ ...p, ai: M.redAi && p.team === 'red' }));
-    randomizeSpawns(players, this.terrain, this.rng);
+    let players: Player[];
+    if (this.net) {
+      // 온라인: 서버가 정한 순서·위치 그대로
+      players = this.room.state.tanks.map((t) => ({
+        name: t.name, team: t.team as Team, color: t.color, sprite: t.sprite, spawnX: t.x, facing: t.facing, ai: false,
+      }));
+    } else {
+      const M = CONFIG.MODES[this.mode] || CONFIG.MODES.cpu;
+      players = (M.team ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
+        .map((p) => ({ ...p, ai: M.redAi && p.team === 'red' }));
+      randomizeSpawns(players, this.terrain, this.rng);
+    }
     this.tanks = players.map((p) => new Tank(this, this.terrain, p, barrelInfo));
     this.hud = new Hud(this, this.tanks, this.terrain);
     this.snow = new Snow(this);
@@ -132,7 +175,200 @@ export class GameScene extends Phaser.Scene {
     // 배경음: 게임 중 반복 (씬이 끝나면 위 stopLoops에서 함께 꺼진다)
     Sfx.loop('loop2', true, { fade: 800 });
 
-    this.playIntroSweep(() => this.startTurn());
+    if (this.net) {
+      this.setupNet();
+      // 시작 연출 뒤에는 서버가 턴을 열 때까지 기다린다 (netUpdate가 이어 받음)
+      this.playIntroSweep(() => { this.state = 'idle'; });
+    } else {
+      this.playIntroSweep(() => this.startTurn());
+    }
+  }
+
+  // ---- 온라인 ----
+
+  private setupNet(): void {
+    const room = this.room;
+    this.shownTurn = 0;
+    this.pendingShot = null;
+    this.appliedOps = 0;
+    this.sentMoveDir = 0;
+    this.sentAim = { value: -1, at: 0 };
+    this.dropNotice = null;
+    this.syncTanksFromServer(true);
+
+    const onDrop = () => this.showDropNotice('연결이 끊겼어요. 다시 연결하는 중…');
+    const onReconnect = () => {
+      this.showDropNotice(null);
+      void this.catchUpTerrain();
+    };
+    const onLeave = () => {
+      if (this.scene.isActive()) this.scene.start('Lobby', { message: '게임 서버와 연결이 끊겼어요.' });
+    };
+    room.onDrop(onDrop);
+    room.onReconnect(onReconnect);
+    room.onLeave(onLeave);
+    const offShot = room.onMessage('shot', (msg) => { this.pendingShot = msg; });
+    this.netCleanup = [
+      () => room.onDrop.remove(onDrop),
+      () => room.onReconnect.remove(onReconnect),
+      () => room.onLeave.remove(onLeave),
+      offShot,
+    ];
+    this.events.once('shutdown', () => {
+      for (const off of this.netCleanup) off();
+      this.netCleanup = [];
+    });
+    // 새로고침·중간 재입장이면 이미 파인 땅이 있다
+    void this.catchUpTerrain();
+  }
+
+  /** 서버의 지형 기록 중 아직 반영 안 한 것을 적용 */
+  private async catchUpTerrain(): Promise<void> {
+    const log = await this.room.request('terrainLog').catch(() => [] as TerrainOp[]);
+    if (!this.scene.isActive()) return;
+    for (let i = this.appliedOps; i < log.length; i++) this.applyTerrainOp(log[i]);
+    this.appliedOps = Math.max(this.appliedOps, log.length);
+  }
+
+  private applyTerrainOp(op: TerrainOp): void {
+    if (op.kind === 'carve') this.terrain.applyCarve(op.carve);
+    else this.terrain.applyDig(op.ops);
+  }
+
+  private showDropNotice(text: string | null): void {
+    this.dropNotice?.destroy();
+    this.dropNotice = null;
+    if (!text) return;
+    this.dropNotice = uiText(this, CONFIG.GAME_W / 2, 140, 18, { color: UI.GOLD_CSS, stroke: 6 })
+      .setText(text).setOrigin(0.5).setScrollFactor(0).setDepth(CONFIG.DEPTH.OVERLAY);
+  }
+
+  /** 서버 상태로 탱크를 맞춘다. full이면 위치·체력·탄까지 (턴 시작·게임 시작 때) */
+  private syncTanksFromServer(full: boolean): void {
+    this.room.state.tanks.forEach((s, i) => {
+      const t = this.tanks[i];
+      if (!t) return;
+      if (full) {
+        t.x = s.x;
+        t.y = s.y;
+        t.falling = false;
+        t.vy = 0;
+        t.hp = s.hp;
+        t.fuel = s.fuel;
+        t.facing = s.facing;
+        t.elevation = s.elevation;
+        s.stock.forEach((n, k) => { t.stock[k] = decodeStock(n); });
+      }
+      if (s.dead && !t.dead) t.die();
+    });
+  }
+
+  /** 매 프레임: 서버 상태를 화면 진행에 반영 */
+  private netUpdate(dt: number): void {
+    const st = this.room.state;
+    this.timeLeft = st.timeLeft;
+
+    // 발사 결과가 왔고 쏠 준비가 됐으면 포탄을 날린다
+    if (this.pendingShot && (this.state === 'aiming' || this.state === 'charging' || this.state === 'waiting')
+      && this.pendingShot.turnCount === this.shownTurn) {
+      const shot = this.pendingShot;
+      this.pendingShot = null;
+      this.playShot(shot);
+      return;
+    }
+
+    // 쉬는 중(idle)이거나, 쏘지 않은 채 서버가 차례를 넘겼으면 새 턴을 연다
+    // (이미 쏜 뒤라도 열어 두면 도착해 있는 발사 결과를 이어서 보여 준다)
+    const newTurn = st.turnCount > this.shownTurn && (st.turnPhase === 'aiming' || st.turnPhase === 'flying');
+    if (newTurn && (this.state === 'idle' || this.state === 'aiming' || this.state === 'charging')) {
+      this.netStartTurn();
+      return;
+    }
+
+    // 게임 끝 (포탄 연출 중이면 끝난 뒤에. 조준 중에 상대가 나가 끝난 경우도 포함)
+    if (st.phase === 'ended'
+      && (this.state === 'idle' || this.state === 'aiming' || this.state === 'charging' || this.state === 'waiting')) {
+      this.syncTanksFromServer(true);
+      this.endGame(st.winner === 'blue' || st.winner === 'red' ? st.winner : null);
+      return;
+    }
+
+    // 내 차례: 이동 키를 떼고 나면 서버 위치로 부드럽게 맞춘다 (발사는 서버 위치 기준)
+    if ((this.state === 'aiming' || this.state === 'charging') && this.isMyTurn && this.sentMoveDir === 0) {
+      const s = st.tanks[this.activeIndex];
+      const t = this.active;
+      if (s && t && !t.falling) {
+        const k = Math.min(1, dt * 8);
+        t.x += (s.x - t.x) * k;
+        t.y += (s.y - t.y) * k;
+        if (Math.abs(s.x - t.x) < 0.5) t.x = s.x;
+        if (Math.abs(s.y - t.y) < 0.5) t.y = s.y;
+        t.fuel = Math.min(t.fuel, s.fuel);
+      }
+    }
+
+    // 다른 사람 차례: 서버 위치·각도를 부드럽게 따라간다
+    if ((this.state === 'aiming' || this.state === 'charging') && !this.isMyTurn) {
+      const s = st.tanks[this.activeIndex];
+      const t = this.active;
+      if (s && t) {
+        const k = Math.min(1, dt * 12);
+        const moving = Math.abs(s.x - t.x) > 0.5;
+        t.x += (s.x - t.x) * k;
+        t.y += (s.y - t.y) * k;
+        t.facing = s.facing;
+        const prevElev = t.elevation;
+        t.elevation += (s.elevation - t.elevation) * k;
+        t.fuel = s.fuel;
+        this.sndMove = moving;
+        this.sndAim = Math.abs(t.elevation - prevElev) > 0.05;
+      }
+    }
+  }
+
+  private netStartTurn(): void {
+    const st = this.room.state;
+    // 연출을 못 하고 지나간 발사(시작 연출 중 등)가 있으면 지형만 서버 기록으로 맞춘다
+    if (this.pendingShot && this.pendingShot.turnCount < st.turnCount) {
+      this.pendingShot = null;
+      void this.catchUpTerrain();
+    }
+    this.shownTurn = st.turnCount;
+    // 이미 쏜 뒤(flying)면 서버 체력은 맞은 뒤 값이라 맞추지 않는다 (포탄 연출에서 피해가 들어감)
+    if (st.turnPhase === 'aiming') this.syncTanksFromServer(true);
+    this.activeIndex = st.turn;
+    this.wind = st.wind;
+    this.power = 0;
+    this.weaponIndex = 0;
+    this.sentMoveDir = 0;
+    this.sentAim = { value: this.active.elevation, at: 0 };
+    this.state = 'aiming';
+    this.ai = null;
+    const tank = this.active;
+    this.hud.showBanner(this.isMyTurn ? '내 차례!' : `${tank.player.name} 차례`);
+    this.focusTank(tank);
+  }
+
+  /** 서버 판정 결과대로 포탄을 날린다 (착탄 위치·피해는 서버 값) */
+  private playShot(shot: ShotMessage): void {
+    const tank = this.tanks[shot.shooter];
+    this.activeIndex = shot.shooter;
+    tank.facing = shot.facing;
+    tank.elevation = shot.elevation;
+    tank.lastPower = shot.power;
+    tank.stock[shot.weapon] -= 1;
+    this.weaponIndex = shot.weapon;
+    this.power = shot.power;
+    this.launchShells(tank, CONFIG.WEAPONS[shot.weapon], shot.muzzles.map((m) => makeShell(m, shot.power)), shot.impacts);
+  }
+
+  /** 착탄 연출 + 서버가 정한 땅 변화·피해 적용 */
+  private applyImpact(s: Shell, imp: ShellImpact): void {
+    if (imp.hit === 'out') return;
+    if (imp.carve) { this.terrain.applyCarve(imp.carve); this.appliedOps++; }
+    imp.damages.forEach((amount, i) => this.tanks[i].damage(amount));
+    if (imp.dig) { this.terrain.applyDig(imp.dig); this.appliedOps++; }
+    this.explosionEffects(imp.x, imp.y, s.weapon, imp.radius, imp.scale);
   }
 
   // 스테이지 시작 연출: 맵 가운데에서 시작해 턴 순서대로 탱크를 하나씩 비춘다
@@ -181,7 +417,7 @@ export class GameScene extends Phaser.Scene {
 
   // 내 턴에 쏘기 전(조준·충전 중)에는 화면을 끌어서 맵을 둘러볼 수 있다.
   private get canDragCamera(): boolean {
-    return (this.state === 'aiming' || this.state === 'charging') && !this.ai;
+    return (this.state === 'aiming' || this.state === 'charging') && this.controlling;
   }
 
   private setupCameraDrag(): void {
@@ -301,9 +537,12 @@ export class GameScene extends Phaser.Scene {
     this.sndAim = false;
     for (const t of this.tanks) t.update(dt);
 
-    // 조준 중에 내 탱크가 죽거나(맵 아래로 떨어지는 등) 한 팀이 전멸하면 쏘지 않고 바로 정산한다.
-    if ((this.state === 'aiming' || this.state === 'charging')
+    if (this.net) {
+      // 온라인: 턴 진행·종료는 서버가 정한다
+      this.netUpdate(dt);
+    } else if ((this.state === 'aiming' || this.state === 'charging')
       && (this.active.dead || this.aliveTeams().length < 2)) {
+      // 조준 중에 내 탱크가 죽거나(맵 아래로 떨어지는 등) 한 팀이 전멸하면 쏘지 않고 바로 정산한다.
       this.beginResolve();
     }
 
@@ -325,6 +564,8 @@ export class GameScene extends Phaser.Scene {
       power: this.power,
       weaponIndex: this.weaponIndex,
       isAi: this.isAiTurn,
+      // 남이 조종하는 차례(CPU·온라인 상대)에는 예상 탄도를 보여 주지 않는다
+      controlled: this.controlling,
       time,
       shell: this.followedShell,
     });
@@ -334,12 +575,20 @@ export class GameScene extends Phaser.Scene {
   private updateAiming(dt: number): void {
     const tank = this.active;
     if (this.ai) { this.updateAi(dt); return; }
+    if (!this.isMyTurn) return; // 온라인 상대 차례: netUpdate가 서버 상태를 따라간다
 
-    this.timeLeft -= dt;
-    if (this.timeLeft <= 0) { this.beginResolve(); return; }
+    if (this.net) {
+      // 시간 초과는 서버가 처리한다 (0이 되면 입력만 막음)
+      if (this.timeLeft <= 0) { this.sendMove(0); return; }
+    } else {
+      this.timeLeft -= dt;
+      if (this.timeLeft <= 0) { this.beginResolve(); return; }
+    }
 
     let moved = false;
     const moveDir = this.cursors.left.isDown ? -1 : (this.cursors.right.isDown ? 1 : 0);
+    // 온라인: 서버가 같은 코드로 움직이고, 화면은 먼저 움직여 보인다 (턴 시작 때 서버 위치로 맞춤)
+    this.sendMove(moveDir);
     if (moveDir) moved = tank.move(moveDir, dt);
     // 둘러보다가 탱크를 움직이면 화면이 다시 탱크를 따라간다.
     if (moved && this.cameraFree && !this.drag) this.followTank(tank);
@@ -359,15 +608,33 @@ export class GameScene extends Phaser.Scene {
     if (this.cursors.down.isDown) tank.elevation -= T.AIM_SPEED * dt;
     tank.elevation = Phaser.Math.Clamp(tank.elevation, T.ELEV_MIN, T.ELEV_MAX);
     this.sndAim = tank.elevation !== prevElev;
+    this.sendAim(tank.elevation);
 
     this.weaponKeys.forEach((key, i) => {
       if (Phaser.Input.Keyboard.JustDown(key)) this.selectWeapon(i);
     });
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.space) && !tank.falling) {
+      this.sendMove(0);
       this.power = 0;
       this.state = 'charging';
     }
+  }
+
+  /** 온라인: 이동 키 상태가 바뀔 때만 보낸다 */
+  private sendMove(dir: number): void {
+    if (!this.net || dir === this.sentMoveDir) return;
+    this.sentMoveDir = dir;
+    this.room.send('move', { dir });
+  }
+
+  /** 온라인: 각도가 바뀌면 너무 자주 보내지 않게 간격을 두고 보낸다 */
+  private sendAim(elevation: number): void {
+    if (!this.net) return;
+    const now = this.time.now;
+    if (Math.abs(elevation - this.sentAim.value) < 0.05 || now - this.sentAim.at < AIM_SEND_MS) return;
+    this.sentAim = { value: elevation, at: now };
+    this.room.send('aim', { elevation });
   }
 
   private updateAi(dt: number): void {
@@ -407,21 +674,31 @@ export class GameScene extends Phaser.Scene {
       }
       return;
     }
-    this.timeLeft -= dt;
+    if (!this.net) this.timeLeft -= dt;
     if (this.power >= 100 || this.cursors.space.isUp || this.timeLeft <= 0) this.fire();
   }
 
   private fire(): void {
     const tank = this.active;
+    if (this.net) {
+      // 온라인: 서버에 보내고 판정 결과('shot')를 기다린다
+      this.room.send('fire', {
+        weapon: this.weaponIndex, power: this.power, elevation: tank.elevation, facing: tank.facing,
+      });
+      this.state = 'waiting';
+      return;
+    }
     const weapon = CONFIG.WEAPONS[this.weaponIndex];
     tank.stock[this.weaponIndex] -= 1;
     tank.lastPower = this.power;
+    const states = shellOffsets(weapon).map((o) => makeShell(tank.muzzle(tank.elevation + o), this.power));
+    this.launchShells(tank, weapon, states);
+  }
 
-    const offsets = weapon.shells === 3
-      ? [-CONFIG.TRIPLE_SPREAD, 0, CONFIG.TRIPLE_SPREAD]
-      : [0];
-    for (const offset of offsets) {
-      const state = makeShell(tank.muzzle(tank.elevation + offset), this.power);
+  /** 포탄을 화면에 띄우고 발사 연출. impacts가 있으면(온라인) 서버가 정한 스텝에 터진다 */
+  private launchShells(tank: Tank, weapon: Weapon, states: ShellState[], impacts?: ShellImpact[]): void {
+    this.stepAcc = 0;
+    for (const [id, state] of states.entries()) {
       const size = weapon.scale || 1;
       const sprite = this.add.image(state.x, state.y, 'shell').setScale(size).setDepth(CONFIG.DEPTH.SHELL);
       // 강력탄 등: 포탄 뒤에 은은하게 깜빡이는 빛 무리
@@ -439,7 +716,8 @@ export class GameScene extends Phaser.Scene {
         follow: sprite, frequency: 28, lifespan: 380, scale: { start: 0.32 * size, end: 0 },
         alpha: { start: 0.55, end: 0 }, tint: weapon.glow || 0xe5e7eb,
       }).setDepth(CONFIG.DEPTH.SHELL - 2);
-      this.shells.push({ ...state, weapon, owner: tank, sprite, glow, trail });
+      const impact = impacts?.find((imp) => imp.shell === id);
+      this.shells.push({ ...state, weapon, owner: tank, sprite, glow, trail, impact, steps: 0 });
     }
     this.followShell(this.shells[Math.floor(this.shells.length / 2)]);
     Sfx.play(`fire_${weapon.key}`, { rate: Phaser.Math.FloatBetween(0.95, 1.05), ...this.soundAt(tank.x) });
@@ -458,7 +736,15 @@ export class GameScene extends Phaser.Scene {
       for (let i = this.shells.length - 1; i >= 0; i--) {
         const s = this.shells[i];
         stepShell(s, this.wind);
-        const hit = shellContact(s, this.terrain, this.tanks, s.owner);
+        s.steps++;
+        let hit: HitKind | null;
+        if (s.impact) {
+          // 온라인: 서버가 정한 스텝에 서버가 정한 자리에서 끝난다
+          hit = s.steps >= s.impact.steps ? s.impact.hit : null;
+          if (hit) Object.assign(s, { x: s.impact.x, y: s.impact.y, vx: s.impact.vx, vy: s.impact.vy });
+        } else {
+          hit = shellContact(s, this.terrain, this.tanks, s.owner);
+        }
         if (hit) {
           this.shells.splice(i, 1);
           this.finishShell(s, hit);
@@ -481,7 +767,9 @@ export class GameScene extends Phaser.Scene {
     if (s.glow) { this.tweens.killTweensOf(s.glow); s.glow.destroy(); }
     s.trail.stop();
     this.time.delayedCall(500, () => s.trail.destroy());
-    if (hit !== 'out') {
+    if (s.impact) {
+      this.applyImpact(s, s.impact);
+    } else if (hit !== 'out') {
       const radius = this.explode(s.x, s.y, s.weapon, Math.hypot(s.vx, s.vy));
       // 탱크 직격: 맞은 탱크가 땅에 눌린 자국을 낸다
       if (hit === 'tank') digBehindTank(this.terrain, this.tanks, s, radius);
@@ -498,6 +786,12 @@ export class GameScene extends Phaser.Scene {
     for (const t of this.tanks) {
       t.damage(splashDamage(t, x, y, radius, damage));
     }
+    this.explosionEffects(x, y, weapon, radius, scale);
+    return radius;
+  }
+
+  /** 폭발 화면 효과 + 소리 (판정 없음) */
+  private explosionEffects(x: number, y: number, weapon: Weapon, radius: number, scale: number): void {
     this.explosionFx(x, y, radius);
 
     // 폭발음: 무기별로 고르고, 세게 맞을수록(scale 0.7~1.3) 크게, 화면에서 멀수록 작게
@@ -508,7 +802,6 @@ export class GameScene extends Phaser.Scene {
       rate: Phaser.Math.FloatBetween(0.94, 1.06),
     });
     this.time.delayedCall(140, () => Sfx.play('dirt_debris', at));
-    return radius;
   }
 
   // 화면 중심에서 x까지 거리에 따른 볼륨·좌우 패닝. 화면 안이면 거의 그대로, 멀어질수록 작아진다.
@@ -547,6 +840,9 @@ export class GameScene extends Phaser.Scene {
     if (this.resolveWait > 0) return;
     if (this.tanks.some((t) => t.falling)) return;
 
+    // 온라인: 다음 턴·게임 종료는 서버 신호를 기다린다 (netUpdate)
+    if (this.net) { this.state = 'idle'; return; }
+
     const teams = this.aliveTeams();
     if (teams.length < 2) this.endGame(teams[0] || null);
     else this.startTurn();
@@ -565,9 +861,13 @@ export class GameScene extends Phaser.Scene {
     let message = '무승부';
     let color = 0xfbbf24;
     // 결과음: CPU 팀이 이기면 패배음, 그 외(사람 팀 승리·핫시트)는 승리음. 무승부는 소리 없음.
+    // 온라인: 내 팀이 지면 패배음
     if (winnerTeam) {
-      const cpuWon = this.tanks.some((t) => t.player.team === winnerTeam && t.player.ai);
-      Sfx.play(cpuWon ? 'game_lose' : 'game_win');
+      const myTeam = this.net ? this.room.state.players.get(this.room.sessionId)?.team : null;
+      const lost = this.net
+        ? myTeam !== winnerTeam
+        : this.tanks.some((t) => t.player.team === winnerTeam && t.player.ai);
+      Sfx.play(lost ? 'game_lose' : 'game_win');
       const winner = this.tanks.find((t) => t.player.team === winnerTeam)!;
       const label = this.tanks.length > 2 ? CONFIG.TEAMS[winnerTeam] : winner.player.name;
       message = `${label} 승리!`;
@@ -588,12 +888,27 @@ export class GameScene extends Phaser.Scene {
     fixed(uiText(this, W / 2, py + 52, 16, { color: UI.MUTED })).setText('게임 종료').setOrigin(0.5);
     fixed(uiText(this, W / 2, py + 102, 56, { color: UI.GOLD_CSS, stroke: 8 })).setText(message).setOrigin(0.5);
 
-    // 버튼: [R] 다시 하기   [T] 타이틀 — 키보드와 마우스 클릭 모두 동작
+    // 버튼: [R] 다시 하기(온라인: 대기실)   [T] 타이틀(온라인: 방 나가기) — 키보드와 마우스 클릭 모두 동작
     let done = false;
     const once = (fn: () => void) => () => { if (!done) { done = true; Sfx.play('ui_click'); fn(); } };
-    const restart = once(() => this.scene.restart({ mode: this.mode }));
-    const toTitle = once(() => this.scene.start('Title'));
-    const buttons: [string, string, () => void][] = [['R', '다시 하기', restart], ['T', '타이틀', toTitle]];
+    const net = this.net;
+    const restart = once(() => {
+      if (net) this.scene.start('Lobby', { net });
+      else this.scene.restart({ mode: this.mode });
+    });
+    const toTitle = once(() => {
+      if (net) {
+        // 스스로 나가는 것이므로 '연결 끊김' 처리가 끼어들지 않게 리스너부터 뗀다
+        for (const off of this.netCleanup) off();
+        this.netCleanup = [];
+        void net.leave();
+      }
+      this.scene.start('Title');
+    });
+    const buttons: [string, string, () => void][] = [
+      ['R', net ? '대기실로' : '다시 하기', restart],
+      ['T', net ? '나가기' : '타이틀', toTitle],
+    ];
     buttons.forEach(([k, label, action], i) => {
       const cx = W / 2 + (i === 0 ? -100 : 100);
       const cy = py + ph - 46;
@@ -621,7 +936,7 @@ export class GameScene extends Phaser.Scene {
 
   // 무기 선택 (키보드 1·2·3 또는 무기 슬롯 클릭). 내 턴 조준 중에만, 남은 탄이 있을 때만.
   selectWeapon(i: number): void {
-    if (this.state !== 'aiming' || this.ai) return;
+    if (this.state !== 'aiming' || !this.controlling) return;
     if (this.active.stock[i] > 0 && this.weaponIndex !== i) {
       this.weaponIndex = i;
       Sfx.play('weapon_select');

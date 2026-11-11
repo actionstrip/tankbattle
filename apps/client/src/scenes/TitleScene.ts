@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import type { GameMode } from '../config';
+import { hasSavedSession } from '../net/session';
 import { Sfx } from '../sound';
 import { sourceImage } from '../tankSlicer';
 import { UI, addFixedBackground, uiPanel, uiText } from '../ui';
@@ -9,6 +10,12 @@ export class TitleScene extends Phaser.Scene {
   constructor() { super('Title'); }
 
   create(): void {
+    // 온라인 게임 중 새로고침했으면 바로 방으로 돌아간다 (서버가 30초 동안 자리를 비워 둔다)
+    if (hasSavedSession() && !this.registry.get('resumeTried')) {
+      this.registry.set('resumeTried', true);
+      this.scene.start('Lobby');
+      return;
+    }
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     addFixedBackground(this);
@@ -30,6 +37,11 @@ export class TitleScene extends Phaser.Scene {
     this.addButton(colR, 440, '1:1  핫시트', '한 키보드로 둘이 번갈아', () => this.begin('2p'));
     this.addButton(colL, 530, '2:2  팀전', '블루팀 2명 vs CPU 2대', () => this.begin('2v2'));
     this.addButton(colR, 530, '2:2  핫시트', '한 키보드로 넷이 번갈아', () => this.begin('2v2hot'));
+    // 온라인: 각자 PC에서 접속해 1:1 또는 2:2
+    this.addButton(W / 2, 612, '온라인  대전', '각자 PC에서 접속해 1:1 · 2:2', () => {
+      Sfx.play('ui_click');
+      this.scene.start('Lobby');
+    }, 780);
 
     // 조작 안내 띠
     const keys = [['← →', '이동'], ['↑ ↓', '각도'], ['Space', '누르고 떼서 발사'], ['1 2 3', '무기'], ['드래그', '화면 이동']];
@@ -117,8 +129,7 @@ export class TitleScene extends Phaser.Scene {
     keyboard.on('keydown', close);
   }
 
-  private addButton(x: number, y: number, label: string, sub: string, onClick: () => void): void {
-    const w = 380;
+  private addButton(x: number, y: number, label: string, sub: string, onClick: () => void, w = 380): void {
     const h = 64;
     const g = this.add.graphics();
     const draw = (hover: boolean) => {

@@ -76,16 +76,38 @@ export class Terrain extends TerrainMask {
 
   override carve(cx: number, cy: number, r: number, rng: Rng): CarveResult {
     const res = super.carve(cx, cy, r, rng);
-    if (res.kind === 'round') this.paintRound(res.cx, res.cy, res.r);
-    else this.paintErase(res, [[28, 0.45, 6], [10, 0.75, 2]]);
+    this.paintCarve(res);
     return res;
   }
 
   override pressDown(x0: number, x1: number, fromY: number, maxY: number, depthAt: (x: number) => number): EraseOps {
     const ops = super.pressDown(x0, x1, fromY, maxY, depthAt);
-    // 눌린 바닥을 따라 살짝 그을린 자국
-    this.paintErase(ops, ops.bottom.length >= 4 ? [[6, 0.5, 2]] : []);
+    this.paintDig(ops);
     return ops;
+  }
+
+  // ---- 온라인: 서버가 판정한 결과를 그대로 적용 ----
+
+  /** 구덩이 (서버 carve 결과) */
+  override applyCarve(res: CarveResult): void {
+    super.applyCarve(res);
+    this.paintCarve(res);
+  }
+
+  /** 탱크 직격 자국 (서버 pressDown 결과) */
+  applyDig(ops: EraseOps): void {
+    super.applyErase(ops);
+    this.paintDig(ops);
+  }
+
+  private paintCarve(res: CarveResult): void {
+    if (res.kind === 'round') this.paintRound(res.cx, res.cy, res.r);
+    else this.paintErase(res, [[28, 0.45, 6], [10, 0.75, 2]]);
+  }
+
+  // 눌린 바닥을 따라 살짝 그을린 자국
+  private paintDig(ops: EraseOps): void {
+    this.paintErase(ops, ops.bottom.length >= 4 ? [[6, 0.5, 2]] : []);
   }
 
   /** 서버·다른 경로에서 받은 지운 칸 목록을 그림에만 반영할 때도 쓴다 */

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { GameScene } from './scenes/GameScene';
+import { LobbyScene } from './scenes/LobbyScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { TitleScene } from './scenes/TitleScene';
 
@@ -21,5 +22,5 @@ window.game = new Phaser.Game({
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [PreloadScene, TitleScene, GameScene],
+  scene: [PreloadScene, TitleScene, LobbyScene, GameScene],
 });

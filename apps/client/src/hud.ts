@@ -31,7 +31,10 @@ export interface HudState {
   timeLeft: number;
   power: number;
   weaponIndex: number;
+  /** CPU 차례 (이름 옆에 CPU 표시) */
   isAi: boolean;
+  /** 이 화면에서 조종하는 차례 (예상 탄도·무기 선택 표시). 온라인 상대 차례면 false */
+  controlled: boolean;
   time: number;
   shell: ShellState | null;
 }
@@ -228,7 +231,7 @@ export class Hud {
     }
   }
 
-  update({ active, wind, timeLeft, power, weaponIndex, isAi, time, shell }: HudState): void {
+  update({ active, wind, timeLeft, power, weaponIndex, isAi, controlled, time, shell }: HudState): void {
     const g = this.g;
     g.clear();
     this.world.clear();
@@ -252,9 +255,10 @@ export class Hud {
     });
 
     if (active && !active.dead) {
-      this.drawBottom(g, active, power, weaponIndex, isAi);
+      this.drawBottom(g, active, power, weaponIndex, isAi, controlled);
       this.drawMarker(active, time);
-      if (!isAi) this.drawGuide(this.world, active, power, wind);
+      // 예상 탄도는 이 화면에서 조종하는 차례에만
+      if (controlled) this.drawGuide(this.world, active, power, wind);
     }
   }
 
@@ -306,7 +310,9 @@ export class Hud {
     this.windValue.setText(wind === 0 ? '없음' : `${wind > 0 ? '→' : '←'} ${Math.abs(wind)}`);
   }
 
-  private drawBottom(g: Phaser.GameObjects.Graphics, tank: Tank, power: number, weaponIndex: number, isAi: boolean): void {
+  private drawBottom(
+    g: Phaser.GameObjects.Graphics, tank: Tank, power: number, weaponIndex: number, isAi: boolean, controlled: boolean,
+  ): void {
     this.activeName.setText(`${tank.player.name}${isAi ? '  CPU' : ''}`)
       .setColor(Phaser.Display.Color.IntegerToColor(tank.player.color).rgba);
     const tilt = Math.round(Phaser.Math.RadToDeg(-tank.slope * tank.facing));
@@ -332,7 +338,7 @@ export class Hud {
       const selected = i === weaponIndex;
       const stock = tank.stock[i];
       const empty = stock <= 0;
-      const hover = !selected && !empty && !isAi && i === this.hoverSlot;
+      const hover = !selected && !empty && controlled && i === this.hoverSlot;
       g.fillStyle(selected ? 0x23405f : hover ? 0x1b3349 : 0x13263a, 1).fillRoundedRect(s.x, s.y, s.w, s.h, 8);
       g.lineStyle(selected ? 2 : 1, selected ? UI.GOLD : 0xffffff, selected ? 1 : 0.12)
         .strokeRoundedRect(s.x, s.y, s.w, s.h, 8);
