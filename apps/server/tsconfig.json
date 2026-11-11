@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "types": ["node"],
+    // 공용 로직은 패키지 의존성이 아니라 소스 경로로 가져와 빌드 결과(build/index.js)에 묶는다.
+    // → 서버 폴더만 설치·빌드해도 동작 (Colyseus Cloud가 모노레포를 어떻게 다루든 상관없음)
+    "paths": {
+      "@fortress/shared": ["../../packages/shared/src/index.ts"]
+    }
+  },
+  "include": ["src", "test", "tsup.config.ts", "vitest.config.ts"]
+}

@@ -9,7 +9,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @fortress/client",
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:client": "npm run dev -w @fortress/client --",
+    "dev:server": "npm run dev -w @fortress/server",
+    "start:server": "npm run start -w @fortress/server",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
@@ -19,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "concurrently": "^10.0.7",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
     "pngjs": "^7.0.0",

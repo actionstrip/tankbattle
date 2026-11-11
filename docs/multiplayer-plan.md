@@ -147,3 +147,26 @@ fortress/
 - shared: Vitest로 같은 시드·같은 입력이면 같은 착탄점·같은 구덩이가 나오는지 테스트
 - 3~4단계 후: 루트 `npm run dev` → 브라우저 창 2개(일반+시크릿)로 같은 방 입장, 턴·바람·피해·지형이 두 화면에서 같은지, 한쪽 네트워크를 끊었다 붙였을 때 재접속되는지 확인. `@colyseus/testing`으로 턴 진행 자동 테스트
 - 5단계 후: `npm run build` → IIS 주소로 접속, 같은 네트워크의 다른 기기에서 접속해 대전
+
+## 10. 진행 상황
+
+| 단계 | 상태 | 커밋 |
+|---|---|---|
+| 1. 모노레포 전환 | 완료 | `b72ecfb` |
+| 2. shared 분리 | 완료 | `6d26198` |
+| 3. 서버 뼈대 | 완료 | (이 단계 커밋) |
+| 4. 온라인 대전 | 다음 | |
+
+### 실행 명령
+- `npm run dev` — 서버(2567) + 클라이언트(5173) 함께 실행
+- `npm run dev:client -- --port 5180` — 클라이언트만, 포트 지정
+- `npm run build` → `npm run start:server` — 빌드 결과(`apps/server/build/index.js`)로 서버 실행
+- `npm test` — shared(재현성) + server(대기실) 테스트
+- 개발 중 서버 도구: `http://localhost:2567/playground`, `/monitor` (운영 모드에서는 꺼짐), 상태 확인 `/health`
+
+### 3단계에서 확인한 사실 (Cloud 이전 시 참고)
+- `@colyseus/tools`의 `listen()`은 **옵션 객체**를 넘길 때만 Cloud용 Redis(presence/driver)를 자동으로 붙인다. 우리는 `defineServer()` 결과를 넘기므로 `apps/server/src/scaling.ts`에서 같은 조건(`COLYSEUS_CLOUD` + CPU 여러 개, 또는 `REDIS_URI`)으로 직접 붙인다. Colyseus 버전을 올릴 때 tools의 `getColyseusCloudConfig`와 조건이 같은지 다시 확인할 것.
+- Cloud에서는 포트를 `2567 + 프로세스 번호`, 유닉스 소켓으로 듣는다 (tools가 처리).
+- 서버는 `@fortress/shared`를 패키지 의존성으로 갖지 않는다. `tsconfig.json`의 `paths`와 tsup `alias`로 소스를 직접 읽어 `build/index.js`에 묶는다 → 서버 폴더의 `npm install`이 레지스트리에 없는 `@fortress/shared`를 찾다가 실패하는 일이 없다. (단, 빌드할 때 저장소의 `packages/shared` 폴더는 있어야 함)
+- 방 목록은 `LobbyRoom`(`lobby`) + `defineRoom(FortressRoom).enableRealtimeListing()`으로 실시간 제공.
+- 메시지 payload는 zod로 검증하고, 형식이 틀리면 서버가 연결을 끊는다(4002). 클라이언트 SDK에서도 `Client<typeof server>` 덕분에 잘못된 payload가 컴파일 오류로 잡힌다.
