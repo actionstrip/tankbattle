@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
 import {
-  RULES, Rng, TankBody, blastOf, createStageMask, digBehindTank, loadStageSolid, planAiShot, randomizeSpawns,
-  simulateShot, splashDamage,
+  RULES, Rng, TankBody, blastOf, createStageMask, digBehindTank, fireVolley, loadStageSolid, planAiShot, randomizeSpawns,
+  settleTanks, simulateShot, splashDamage,
 } from '../src/index';
 import type { Player } from '../src/index';
 
@@ -85,6 +85,33 @@ function playRound(seed: number) {
   }
   return { log, tanks: tanks.map((t) => [t.x, t.y, t.hp, t.dead]), solid: Buffer.from(terrain.solid) };
 }
+
+describe('서버 판정 결과 재생', () => {
+  it('fireVolley 결과(구덩이·자국)만 다른 마스크에 적용해도 지형이 같아진다', () => {
+    const rng = new Rng(99);
+    const server = createStageMask();
+    const client = createStageMask();
+    const players: Player[] = RULES.TEAM_PLAYERS.map((p) => ({ ...p, ai: false }));
+    randomizeSpawns(players, server, rng);
+    const tanks = players.map((p) => new TankBody(server, p));
+    let impacts = 0;
+    for (let turn = 0; turn < 8; turn++) {
+      const shooter = tanks[turn % tanks.length];
+      if (shooter.dead) continue;
+      shooter.elevation = 30 + turn * 6;
+      shooter.facing = turn % 2 ? -1 : 1;
+      const v = fireVolley(shooter, tanks, server, turn % 3 === 2 ? 2 : 0, 55 + turn * 4, rng.int(-10, 10), rng);
+      settleTanks(tanks);
+      for (const imp of v.impacts) {
+        if (imp.carve) client.applyCarve(imp.carve);
+        if (imp.dig) client.applyErase(imp.dig);
+        impacts++;
+      }
+    }
+    expect(impacts).toBeGreaterThan(0);
+    expect(Buffer.from(client.solid).equals(Buffer.from(server.solid))).toBe(true);
+  });
+});
 
 describe('한 판 재현', () => {
   it('같은 시드면 바람·착탄·피해·지형이 모두 같다', () => {

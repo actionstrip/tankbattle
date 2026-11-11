@@ -211,7 +211,7 @@ export class TerrainMask {
   }
 
   // 옆면 착탄: 원형으로 판다
-  private carveRound(cx: number, cy: number, r: number): CarveResult {
+  protected carveRound(cx: number, cy: number, r: number): CarveResult {
     const { w, solid } = this;
     const r2 = r * r;
     const x0 = Math.max(0, Math.floor(cx - r));
@@ -304,6 +304,27 @@ export class TerrainMask {
 
     this.version++;
     return { kind: 'bowl', erase, bottom };
+  }
+
+  // ---- 서버가 보낸 결과 적용 (난수 없이 같은 모양으로) ----
+
+  /** carve() 결과를 그대로 다시 적용한다 */
+  applyCarve(res: CarveResult): void {
+    if (res.kind === 'round') this.carveRound(res.cx, res.cy, res.r);
+    else this.applyErase(res);
+  }
+
+  /** 지운 세로 줄 목록을 적용한다 (carve 사발·pressDown 결과) */
+  applyErase(ops: EraseOps): void {
+    const { w, h, solid } = this;
+    const e = ops.erase;
+    for (let k = 0; k < e.length; k += 3) {
+      const x = e[k];
+      const y1 = Math.min(h, e[k + 1] + e[k + 2]);
+      if (x < 0 || x >= w) continue;
+      for (let y = Math.max(0, e[k + 1]); y < y1; y++) solid[y * w + x] = 0;
+    }
+    this.version++;
   }
 
   // 표면을 위에서 눌러 낸 듯 얕게 판다 (탱크가 땅에 박히는 자국).

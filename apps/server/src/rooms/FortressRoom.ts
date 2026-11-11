@@ -1,19 +1,37 @@
-// 대전 방. 지금은 대기실(입장·팀 선택·준비·시작)까지. 게임 진행은 4단계에서 붙인다.
+// 대전 방: 대기실(입장·팀 선택·준비·시작) → 게임(서버 판정) → 결과 → 다시 대기실.
 import { Room, validate } from 'colyseus';
-import type { Client } from 'colyseus';
+import type { Client as ColyseusClient, Delayed } from 'colyseus';
 import { z } from 'zod';
-import { NET, TEAMS, cleanText } from '@fortress/shared';
-import type { FortressJoinOptions, FortressRoomMetadata, RoomPhase, Team, TeamSize } from '@fortress/shared';
-import { FortressState, PlayerState } from './schema/FortressState';
+import { NET, RULES, TEAMS, TIMING, cleanText, encodeStock, randomSeed } from '@fortress/shared';
+import type {
+  FortressJoinOptions, FortressRoomMetadata, RoomPhase, ShotMessage, Team, TeamSize, TerrainOp,
+} from '@fortress/shared';
+import { Match } from '../game/Match';
+import { FortressState, PlayerState, TankState } from './schema/FortressState';
+
+/** 서버 → 클라이언트 메시지 (클라이언트 room.onMessage 타입이 이것으로 맞춰진다) */
+type Client = ColyseusClient<{
+  messages: {
+    started: Record<string, never>;
+    shot: ShotMessage;
+  };
+}>;
 
 const teamSchema = z.enum(['blue', 'red']);
+const TICK_MS = 1000 / 60;
 
-export class FortressRoom extends Room<{ state: FortressState; metadata: FortressRoomMetadata }> {
+export class FortressRoom extends Room<{ state: FortressState; metadata: FortressRoomMetadata; client: Client }> {
   state = new FortressState();
   private joinCounter = 0;
+  private match: Match | null = null;
+  private turnTimer: Delayed | null = null;
+  /** 연출 대기 시간 배율. 테스트에서만 줄인다 (NODE_ENV=test 일 때 timeScale 옵션) */
+  private timeScale = 1;
 
   messages = {
-    /** 팀 바꾸기 (대기실에서만, 자리가 있을 때만) */
+    // ---- 대기실 ----
+
+    /** 팀 바꾸기 (자리가 있을 때만) */
     setTeam: validate(z.object({ team: teamSchema }), (client: Client, { team }) => {
       const p = this.player(client);
       if (!p || this.state.phase !== 'lobby' || p.team === team) return;
@@ -29,26 +47,62 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
       p.ready = ready;
     }),
 
-    /** 방장이 게임 시작. 시작할 수 없으면 이유를 돌려준다 (room.request로 받을 수 있음) */
+    /** 방장이 게임 시작. 시작할 수 없으면 이유를 돌려준다 (room.request로 받음) */
     start: (client: Client) => {
       if (client.sessionId !== this.state.hostId) return { ok: false, reason: '방장만 시작할 수 있어요' };
       const reason = this.cannotStartReason();
       if (reason) return { ok: false, reason };
-      this.setPhase('playing');
-      this.lock();
-      // TODO(4단계): 시드·지형·탱크 배치·첫 턴
-      this.broadcast('started', {});
+      this.startGame(randomSeed());
       return { ok: true };
     },
+
+    /** 게임이 끝난 뒤 방장이 대기실로 되돌린다 */
+    backToLobby: (client: Client) => {
+      if (client.sessionId !== this.state.hostId || this.state.phase !== 'ended') return;
+      this.resetToLobby();
+    },
+
+    // ---- 게임 중 (차례인 사람만) ----
+
+    /** 이동 키를 누르고 있는 방향 (-1, 0, 1). 떼면 0 */
+    move: validate(z.object({ dir: z.number().int().min(-1).max(1) }), (client: Client, { dir }) => {
+      if (!this.isMyAimingTurn(client)) return;
+      this.match!.moveDir = dir;
+      if (dir) this.match!.active!.facing = dir;
+    }),
+
+    /** 포신 각도 */
+    aim: validate(z.object({ elevation: z.number().finite() }), (client: Client, { elevation }) => {
+      if (!this.isMyAimingTurn(client)) return;
+      this.match!.setElevation(elevation);
+    }),
+
+    /** 발사 */
+    fire: validate(z.object({
+      weapon: z.number().int(),
+      power: z.number().finite(),
+      elevation: z.number().finite(),
+      facing: z.number().int().min(-1).max(1),
+    }), (client: Client, msg) => {
+      if (!this.isMyAimingTurn(client, TIMING.FIRE_GRACE_S)) return;
+      const m = this.match!;
+      if (m.active!.falling || !m.canUse(msg.weapon)) return;
+      this.fire(msg.weapon, msg.power, msg.elevation, msg.facing);
+    }),
+
+    /** 처음부터의 지형 변경 기록 (재접속·새로고침 후 지형 맞추기) */
+    terrainLog: (): TerrainOp[] => this.match?.terrainLog ?? [],
   };
 
-  onCreate(options: FortressJoinOptions): void {
+  onCreate(options: FortressJoinOptions & { timeScale?: number }): void {
+    if (process.env.NODE_ENV === 'test' && typeof options.timeScale === 'number') this.timeScale = options.timeScale;
     const teamSize: TeamSize = options.teamSize === 2 ? 2 : 1;
     this.maxClients = teamSize * 2;
     this.state.teamSize = teamSize;
     this.state.title = cleanText(options.title, NET.TITLE_MAX, '포트리스 한 판');
     this.state.phase = 'lobby';
     this.metadata = { title: this.state.title, teamSize, phase: 'lobby' };
+    this.setTimestep((dtMs) => this.update(dtMs / 1000), TICK_MS);
   }
 
   onJoin(client: Client, options: FortressJoinOptions): void {
@@ -71,6 +125,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
       p.connected = false;
       p.ready = false;
     }
+    if (this.match?.active && this.match.owners[this.match.turn] === client.sessionId) this.match.moveDir = 0;
     this.allowReconnection(client, NET.RECONNECT_SECONDS);
   }
 
@@ -83,10 +138,159 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
   onLeave(client: Client): void {
     this.state.players.delete(client.sessionId);
     if (this.state.hostId === client.sessionId) this.passHost();
-    // TODO(4단계): 게임 중에 나가면 해당 탱크를 기권 처리
+    const m = this.match;
+    if (m && this.state.phase === 'playing') {
+      const i = m.indexOf(client.sessionId);
+      if (i >= 0) {
+        m.forfeit(client.sessionId);
+        this.state.tanks[i].owner = '';
+        this.syncTanks();
+        // 조준 중이면 다음 틱(update)에서 차례를 넘기거나 게임을 끝낸다. 포탄이 날고 있으면 원래 예정대로.
+      }
+    }
   }
 
-  // ---- 내부 ----
+  // ---- 게임 진행 ----
+
+  private startGame(seed: number): void {
+    const seats = [...this.state.players.entries()]
+      .sort(([, a], [, b]) => a.joinOrder - b.joinOrder)
+      .map(([sessionId, p]) => ({ sessionId, name: p.name, team: p.team as Team }));
+    const m = new Match(seed, seats);
+    this.match = m;
+
+    this.state.tanks.clear();
+    m.tanks.forEach((t, i) => {
+      const s = new TankState();
+      s.owner = m.owners[i];
+      s.name = t.player.name;
+      s.team = t.player.team;
+      s.color = t.player.color;
+      s.sprite = t.player.sprite;
+      this.state.tanks.push(s);
+    });
+    this.syncTanks();
+    this.state.winner = '';
+    this.state.turn = -1;
+    this.state.turnCount = 0;
+    this.state.wind = 0;
+    this.state.timeLeft = RULES.TURN_SECONDS;
+    this.state.turnPhase = 'intro';
+    this.setPhase('playing');
+    this.lock();
+    this.broadcast('started', {});
+
+    const intro = TIMING.INTRO_BASE_MS + TIMING.INTRO_PER_TANK_MS * m.tanks.length;
+    this.schedule(intro, () => this.beginTurn());
+  }
+
+  private beginTurn(): void {
+    const m = this.match!;
+    m.nextTurn();
+    this.state.turn = m.turn;
+    this.state.turnCount = m.turnCount;
+    this.state.wind = m.wind;
+    this.state.timeLeft = m.timeLeft;
+    this.state.turnPhase = 'aiming';
+    this.syncTanks();
+  }
+
+  private update(dt: number): void {
+    const m = this.match;
+    if (!m || this.state.phase !== 'playing') return;
+    const aiming = this.state.turnPhase === 'aiming';
+    m.tick(dt, aiming);
+    if (aiming) {
+      m.timeLeft -= dt;
+      this.state.timeLeft = Math.max(0, Math.ceil(m.timeLeft * 10) / 10);
+      const owner = this.state.players.get(m.owners[m.turn]);
+      const away = !owner || !owner.connected;
+      if (m.timeLeft < -TIMING.FIRE_GRACE_S
+        || (away && m.timeLeft < RULES.TURN_SECONDS - TIMING.DISCONNECTED_TURN_S)
+        || m.active!.dead
+        || m.aliveTeams().length < 2) { // 상대 팀이 모두 나갔거나 추락
+        this.skipTurn();
+      }
+    }
+    this.syncTanks();
+  }
+
+  private fire(weapon: number, power: number, elevation: number, facing: number): void {
+    const m = this.match!;
+    const { volley, seconds } = m.fire(weapon, power, elevation, facing);
+    this.state.turnPhase = 'flying';
+    this.syncTanks();
+    this.broadcast('shot', { ...volley, shooter: m.turn, turnCount: m.turnCount });
+    this.schedule(seconds * 1000 + TIMING.AFTER_SHOT_MS, () => this.endTurn());
+  }
+
+  /** 쏘지 않고 차례를 넘김 (시간 초과·접속 끊김·기권) */
+  private skipTurn(): void {
+    const m = this.match!;
+    m.moveDir = 0;
+    this.state.turnPhase = 'resolving';
+    this.schedule(TIMING.SKIP_MS, () => this.endTurn());
+  }
+
+  private endTurn(): void {
+    const m = this.match!;
+    const teams = m.aliveTeams();
+    if (teams.length < 2) {
+      this.state.winner = teams[0] ?? 'draw';
+      this.state.turnPhase = '';
+      this.setPhase('ended');
+      return;
+    }
+    this.beginTurn();
+  }
+
+  private resetToLobby(): void {
+    this.turnTimer?.clear();
+    this.match = null;
+    this.state.tanks.clear();
+    this.state.turn = -1;
+    this.state.turnPhase = '';
+    this.state.winner = '';
+    this.state.players.forEach((p) => { p.ready = false; });
+    this.setPhase('lobby');
+    // 꽉 찬 방이 아니면 다시 목록에 보이게
+    if (this.clients.length < this.maxClients) this.unlock();
+  }
+
+  private schedule(ms: number, fn: () => void): void {
+    this.turnTimer?.clear();
+    this.turnTimer = this.clock.setTimeout(fn, ms * this.timeScale);
+  }
+
+  /** 계산용 탱크 → 동기화 상태 */
+  private syncTanks(): void {
+    const m = this.match;
+    if (!m) return;
+    m.tanks.forEach((t, i) => {
+      const s = this.state.tanks[i];
+      if (!s) return;
+      s.x = t.x;
+      s.y = t.y;
+      s.facing = t.facing;
+      s.elevation = Math.round(t.elevation * 10) / 10;
+      s.hp = t.hp;
+      s.fuel = Math.max(0, t.fuel);
+      s.dead = t.dead;
+      t.stock.forEach((n, k) => {
+        const v = encodeStock(n);
+        if (k >= s.stock.length) s.stock.push(v);
+        else if (s.stock[k] !== v) s.stock[k] = v;
+      });
+    });
+  }
+
+  private isMyAimingTurn(client: Client, grace = 0): boolean {
+    const m = this.match;
+    return !!m && this.state.phase === 'playing' && this.state.turnPhase === 'aiming'
+      && m.owners[m.turn] === client.sessionId && m.timeLeft > -grace;
+  }
+
+  // ---- 대기실 내부 ----
 
   private player(client: Client): PlayerState | undefined {
     return this.state.players.get(client.sessionId);
@@ -100,7 +304,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
 
   /** 가장 먼저 들어온 사람에게 방장을 넘긴다 */
   private passHost(): void {
-    let next: string = '';
+    let next = '';
     let best = Infinity;
     this.state.players.forEach((p, id) => {
       if (p.joinOrder < best) { best = p.joinOrder; next = id; }

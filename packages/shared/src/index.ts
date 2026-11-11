@@ -8,5 +8,6 @@ export * from './tankBody';
 export * from './combat';
 export * from './spawn';
 export * from './ai';
+export * from './shot';
 export * from './protocol';
 export { createStageMask, loadStageSolid } from './stage';
