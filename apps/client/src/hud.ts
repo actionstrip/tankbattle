@@ -2,8 +2,8 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
 import type { Team } from './config';
-import { makeShell, shellContact, stepShell } from './projectile';
-import type { ShellState } from './projectile';
+import { makeShell, shellContact, stepShell } from '@fortress/shared';
+import type { ShellState } from '@fortress/shared';
 import type { GameScene } from './scenes/GameScene';
 import type { Tank } from './tank';
 import type { Terrain } from './terrain';

@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
-import { planAiShot } from '../ai';
-import type { AiPlan } from '../ai';
+import {
+  Rng, blastOf, digBehindTank, makeShell, planAiShot, randomSeed, randomizeSpawns, shellContact, splashDamage, stepShell,
+} from '@fortress/shared';
+import type { AiPlan, HitKind, ShellState } from '@fortress/shared';
 import { CONFIG } from '../config';
 import type { GameMode, Player, Team, Weapon, WeaponKey } from '../config';
 import { Hud } from '../hud';
-import { makeShell, shellContact, stepShell } from '../projectile';
-import type { HitKind, ShellState } from '../projectile';
 import { Snow } from '../snow';
 import { Sfx } from '../sound';
 import type { SfxId } from '../sound';
@@ -34,6 +34,8 @@ const EXPLODE_SFX: Record<WeaponKey, SfxId> = {
 
 export class GameScene extends Phaser.Scene {
   private mode: GameMode = 'cpu';
+  /** 게임 결과에 영향을 주는 난수 (바람·시작 위치·구덩이 모양·CPU 오차). 연출용 난수는 Phaser 것을 쓴다 */
+  private rng!: Rng;
   private terrain!: Terrain;
   private tanks!: Tank[];
   private hud!: Hud;
@@ -75,6 +77,7 @@ export class GameScene extends Phaser.Scene {
 
   create(): void {
     addFixedBackground(this);
+    this.rng = new Rng(randomSeed());
     this.terrain = new Terrain(this);
     const barrelInfo = this.registry.get('barrelInfo') as BarrelInfo;
     // 모드별 참가자
@@ -83,7 +86,7 @@ export class GameScene extends Phaser.Scene {
     const M = CONFIG.MODES[this.mode] || CONFIG.MODES.cpu;
     const players: Player[] = (M.team ? CONFIG.TEAM_PLAYERS : CONFIG.PLAYERS)
       .map((p) => ({ ...p, ai: M.redAi && p.team === 'red' }));
-    this.randomizeSpawns(players);
+    randomizeSpawns(players, this.terrain, this.rng);
     this.tanks = players.map((p) => new Tank(this, this.terrain, p, barrelInfo));
     this.hud = new Hud(this, this.tanks, this.terrain);
     this.snow = new Snow(this);
@@ -151,37 +154,6 @@ export class GameScene extends Phaser.Scene {
       });
     };
     visit(0);
-  }
-
-  // 탱크마다 서로 다른 발판을 무작위로 골라 그 위 아무 곳에 놓는다 (한 발판에 한 대).
-  // 발판이 탱크 수보다 적으면 남은 탱크는 이미 쓴 발판 중 넓은 곳에 간격을 두고 놓는다.
-  private randomizeSpawns(players: Player[]): void {
-    const S = CONFIG.SPAWN;
-    const plats = Phaser.Utils.Array.Shuffle(this.terrain.findPlatforms(S.MIN_PLATFORM));
-    if (plats.length === 0) return; // 발판을 못 찾으면 설정값(spawnX) 그대로
-    const used: number[][] = plats.map(() => []);
-    players.forEach((p, i) => {
-      let k = i < plats.length ? i : -1;
-      if (k < 0) {
-        // 남는 탱크: 가장 넓은 발판에 다른 탱크와 MIN_GAP 이상 떨어진 자리
-        k = plats.reduce((b, q, j) => ((q.x1 - q.x0) > (plats[b].x1 - plats[b].x0) ? j : b), 0);
-      }
-      const { x0, x1 } = plats[k];
-      const lo = x0 + S.EDGE;
-      const hi = Math.max(lo, x1 - S.EDGE);
-      let x = Phaser.Math.Between(lo, hi);
-      for (let tries = 0; tries < 30 && used[k].some((u) => Math.abs(u - x) < S.MIN_GAP); tries++) {
-        x = Phaser.Math.Between(lo, hi);
-      }
-      used[k].push(x);
-      p.spawnX = x;
-    });
-    // 가장 가까운 적을 바라보게 한다.
-    for (const p of players) {
-      const foes = players.filter((q) => q.team !== p.team);
-      const near = foes.reduce((a, b) => (Math.abs(b.spawnX - p.spawnX) < Math.abs(a.spawnX - p.spawnX) ? b : a));
-      p.facing = near.spawnX >= p.spawnX ? 1 : -1;
-    }
   }
 
   private get active(): Tank { return this.tanks[this.activeIndex]; }
@@ -313,7 +285,7 @@ export class GameScene extends Phaser.Scene {
     const tank = this.active;
     tank.fuel = CONFIG.TANK.FUEL;
     const max = CONFIG.PHYSICS.WIND_MAX;
-    this.wind = Phaser.Math.Between(-max, max);
+    this.wind = this.rng.int(-max, max);
     this.timeLeft = CONFIG.TURN_SECONDS;
     this.power = 0;
     this.weaponIndex = 0;
@@ -408,7 +380,7 @@ export class GameScene extends Phaser.Scene {
       // 가장 가까운 살아 있는 적을 노린다.
       const enemies = this.tanks.filter((t) => !t.dead && t.player.team !== tank.player.team);
       const enemy = enemies.reduce((a, b) => (Math.abs(b.x - tank.x) < Math.abs(a.x - tank.x) ? b : a));
-      ai.plan = planAiShot(tank, enemy, this.wind, this.terrain, this.tanks);
+      ai.plan = planAiShot(tank, enemy, this.wind, this.terrain, this.tanks, this.rng);
       tank.facing = ai.plan.facing;
       this.weaponIndex = ai.plan.weapon;
     }
@@ -511,7 +483,8 @@ export class GameScene extends Phaser.Scene {
     this.time.delayedCall(500, () => s.trail.destroy());
     if (hit !== 'out') {
       const radius = this.explode(s.x, s.y, s.weapon, Math.hypot(s.vx, s.vy));
-      if (hit === 'tank') this.digBehindTank(s, radius);
+      // 탱크 직격: 맞은 탱크가 땅에 눌린 자국을 낸다
+      if (hit === 'tank') digBehindTank(this.terrain, this.tanks, s, radius);
     }
     // 따라가던 포탄이 끝나면 아직 날고 있는 다른 포탄으로 넘어간다.
     if (this.followedShell === s) this.followShell(this.shells[0] || null);
@@ -519,24 +492,11 @@ export class GameScene extends Phaser.Scene {
 
   // speed: 착탄 순간 속도. 빠를수록 구덩이가 크고 데미지가 세다.
   private explode(x: number, y: number, weapon: Weapon, speed?: number): number {
-    const P = CONFIG.PHYSICS;
-    let scale = 1;
-    if (speed !== undefined) {
-      const k = Phaser.Math.Clamp(
-        (speed - P.IMPACT_SPEED_MIN) / (P.IMPACT_SPEED_MAX - P.IMPACT_SPEED_MIN), 0, 1);
-      scale = P.IMPACT_SCALE_MIN + (P.IMPACT_SCALE_MAX - P.IMPACT_SCALE_MIN) * k;
-    }
-    const radius = weapon.radius * scale;
-    const damage = weapon.damage * scale;
+    const { scale, radius, damage } = blastOf(weapon, speed);
 
-    this.terrain.carve(x, y, radius);
+    this.terrain.carve(x, y, radius, this.rng);
     for (const t of this.tanks) {
-      if (t.dead) continue;
-      const d = Math.hypot(t.x - x, t.y - CONFIG.TANK.HIT_CENTER_Y - y);
-      const edge = Math.max(0, d - CONFIG.TANK.BODY_RADIUS);
-      if (edge < radius) {
-        t.damage(Math.round(damage * (1 - edge / radius)));
-      }
+      t.damage(splashDamage(t, x, y, radius, damage));
     }
     this.explosionFx(x, y, radius);
 
@@ -549,31 +509,6 @@ export class GameScene extends Phaser.Scene {
     });
     this.time.delayedCall(140, () => Sfx.play('dirt_debris', at));
     return radius;
-  }
-
-  // 탱크에 직접 맞으면 폭발이 공중이라 땅이 그대로 남아 어색하다.
-  // 탱크가 맞은 충격으로 땅에 눌린 것처럼 탱크 바닥 모양대로 얕게 판다.
-  // 포탄이 날아온 반대쪽이 더 깊어서 탱크가 그쪽으로 살짝 기울며 내려앉는다.
-  private digBehindTank(s: Shell, radius: number): void {
-    const T = CONFIG.TANK;
-    const D = T.BLAST_DIG;
-    // 맞은 탱크 = 착탄점에서 가장 가까운 탱크 (방금 폭발로 죽었을 수 있어 dead도 포함)
-    const dist = (t: Tank) => Math.hypot(t.x - s.x, t.y - T.HIT_CENTER_Y - s.y);
-    const tank = this.tanks.reduce((a, b) => (dist(b) < dist(a) ? b : a));
-    // 거의 수직으로 떨어졌으면 맞은 지점이 탱크 중심의 어느 쪽인지로 정한다.
-    const dir = Math.abs(s.vx) > 40 ? Math.sign(s.vx) : (Math.sign(tank.x - s.x) || 1);
-    // 탱크 몸체 이미지 폭 기준 (궤도는 몸체보다 조금 좁다)
-    const half = (tank.body.width * tank.rigScale / 2) * D.WIDTH;
-    const deep = radius * D.DEPTH;                 // 반대쪽 끝 깊이
-    const shallow = deep * D.NEAR;                 // 맞은 쪽 끝 깊이
-    this.terrain.pressDown(tank.x - half, tank.x + half, tank.y - T.MAX_CLIMB * 4, tank.y + D.MAX_DROP, (x) => {
-      const u = (x - tank.x) / half;               // -1 ~ 1
-      const far = (u * dir + 1) / 2;               // 맞은 쪽 0 → 반대쪽 1
-      // 궤도처럼 양 끝이 둥글게 올라오도록
-      const edge = Math.max(0, 1 - Math.abs(u));
-      const round = Math.sqrt(Math.min(1, edge / D.ROUND));
-      return (shallow + (deep - shallow) * far) * round;
-    });
   }
 
   // 화면 중심에서 x까지 거리에 따른 볼륨·좌우 패닝. 화면 안이면 거의 그대로, 멀어질수록 작아진다.

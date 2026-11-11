@@ -1,0 +1,19 @@
+{
+  "name": "@fortress/shared",
+  "private": true,
+  "version": "0.1.0",
+  "description": "클라이언트·서버 공용 게임 로직 (Phaser·DOM 사용 금지)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit && tsc --noEmit -p test",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/pngjs": "^6.0.5",
+    "vitest": "^5.1.0"
+  }
+}

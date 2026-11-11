@@ -1,27 +1,12 @@
 // 탱크는 몸체(<color>_body.png, 1536×1024)와 공용 포신(po.png, 2172×724) 두 장으로 그린다.
-// 좌표는 모두 몸체 이미지 픽셀 기준이다. 포신의 크기·위치는 사용자가 맞춘 배치 시안과
-// 픽셀 대조로 구했다 (시안에서 몸체 0.5배, 포신 0.304배 → 포신은 몸체 대비 0.608배).
+// 좌표 상수(TANK_SHEET)는 포구 위치 판정에도 쓰이므로 @fortress/shared 에 있다.
 // 런타임에 미리 축소한 캔버스 텍스처로 만든다 (축소 계단 현상 방지).
 import type Phaser from 'phaser';
+import { TANK_SHEET } from '@fortress/shared';
 
-export const TANK_SHEET = {
-  SCALE: 0.16,                 // 몸체 이미지 → 텍스처 축소 배율 (화면 크기는 CONFIG.TANK.SCALE을 한 번 더 곱함)
-  ORIGIN: { x: 765, y: 955 },  // 궤도 바닥 중앙 (몸체 좌표)
-  PO: {
-    SCALE: 0.608,              // 포신 이미지 → 몸체 좌표 배율
-    LENGTH: 2 / 3,             // 회전축~총구 길이 배율 (가운데 관을 잘라 내 줄임, 굵기·모양 유지)
-    TUBE_CUT_START: 900,       // 잘라 낼 관 구간 시작 x (관은 약 x 565~1550)
-    PIVOT: { x: 1864, y: 364 },  // 포신 이미지 안 회전축 (오른쪽 둥근 고리 중심)
-    MUZZLE: { x: 168, y: 362 },  // 포신 이미지 안 총구 끝 중심
-  },
-  // 포신 회전축이 놓이는 몸체 좌표 (포탑 앞쪽)
-  PIVOT: { x: 862, y: 306 },
-  COLORS: ['blue', 'red'],
-};
+export { TANK_SHEET };
 
 export interface BarrelInfo {
-  /** 몸체 좌표 기준 회전축~총구 거리 */
-  length: number;
   /** 포신 텍스처에서 회전축 위치 (0~1) */
   origin: { x: number; y: number };
 }
@@ -35,7 +20,6 @@ export function sliceTanks(scene: Phaser.Scene): BarrelInfo {
   const S = TANK_SHEET;
   const P = S.PO;
   // 포신은 수평(총구가 왼쪽)으로 그려져 있으므로 회전 없이 축소만 한다.
-  const length = (P.PIVOT.x - P.MUZZLE.x) * P.SCALE * P.LENGTH; // 몸체 좌표 기준 회전축~총구 거리
 
   for (const name of S.COLORS) {
     const bodyImg = sourceImage(scene, `tank_${name}_body_src`);
@@ -65,7 +49,7 @@ export function sliceTanks(scene: Phaser.Scene): BarrelInfo {
   barrel.refresh();
 
   // origin: 포신 텍스처에서 회전축 위치 (0~1)
-  return { length, origin: { x: pivotX / srcW, y: P.PIVOT.y / poImg.height } };
+  return { origin: { x: pivotX / srcW, y: P.PIVOT.y / poImg.height } };
 }
 
 // arrow.png는 회전하는 화살표 5칸이 가로로 이어진 시트다 (칸 폭이 정수로 나뉘지 않음).

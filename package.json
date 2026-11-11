@@ -12,13 +12,16 @@
     "dev": "npm run dev -w @fortress/client",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "build:mask": "node tools/build-mask.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "eslint": "^10.14.0",
     "globals": "^17.14.0",
+    "pngjs": "^7.0.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.2"
   }

@@ -1,10 +1,11 @@
 // CPU 조준: 후보 샷을 시뮬레이션해 상대와 가장 가까운 샷을 고르고 오차를 섞는다.
 // 파워 1의 차이가 착탄 지점을 30px 안팎 옮기므로 오차는 작게 둔다.
-import Phaser from 'phaser';
-import { CONFIG } from './config';
+import { RULES } from './config';
+import { clamp } from './math';
 import { simulateShot } from './projectile';
-import type { Tank } from './tank';
-import type { Terrain } from './terrain';
+import type { Rng } from './rng';
+import type { TankBody } from './tankBody';
+import type { TerrainMask } from './terrainMask';
 
 const AI_ERROR = { ELEVATION: 1.5, POWER: 1.5 };
 
@@ -16,10 +17,10 @@ export interface AiPlan {
 }
 
 export function planAiShot(
-  tank: Tank, enemy: Tank, wind: number, terrain: Terrain, tanks: readonly Tank[],
+  tank: TankBody, enemy: TankBody, wind: number, terrain: TerrainMask, tanks: readonly TankBody[], rng: Rng,
 ): AiPlan {
   const targetX = enemy.x;
-  const targetY = enemy.y - CONFIG.TANK.HIT_CENTER_Y;
+  const targetY = enemy.y - RULES.TANK.HIT_CENTER_Y;
   const facing = enemy.x >= tank.x ? 1 : -1;
   const savedFacing = tank.facing;
   tank.facing = facing;
@@ -35,20 +36,18 @@ export function planAiShot(
   }
   tank.facing = savedFacing;
 
-  const usable = CONFIG.WEAPONS
+  const usable = RULES.WEAPONS
     .map((_w, i) => i)
     .filter((i) => tank.stock[i] > 0);
-  const weapon: number = Phaser.Utils.Array.GetRandom(usable);
+  const weapon = rng.pick(usable);
 
   return {
     facing,
     weapon,
-    elevation: Phaser.Math.Clamp(
-      best.elevation + Phaser.Math.FloatBetween(-AI_ERROR.ELEVATION, AI_ERROR.ELEVATION),
-      CONFIG.TANK.ELEV_MIN, CONFIG.TANK.ELEV_MAX,
+    elevation: clamp(
+      best.elevation + rng.float(-AI_ERROR.ELEVATION, AI_ERROR.ELEVATION),
+      RULES.TANK.ELEV_MIN, RULES.TANK.ELEV_MAX,
     ),
-    power: Phaser.Math.Clamp(
-      best.power + Phaser.Math.FloatBetween(-AI_ERROR.POWER, AI_ERROR.POWER), 5, 100,
-    ),
+    power: clamp(best.power + rng.float(-AI_ERROR.POWER, AI_ERROR.POWER), 5, 100),
   };
 }
