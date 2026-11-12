@@ -415,9 +415,10 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  // 내 턴에 쏘기 전(조준·충전 중)에는 화면을 끌어서 맵을 둘러볼 수 있다.
+  // 쏘기 전(조준·충전 중)에는 화면을 끌거나 마우스를 화면 끝에 두어 맵을 둘러볼 수 있다.
+  // 내 차례뿐 아니라 온라인 상대 차례에도 (상대가 쏘면 포탄을 따라가므로 그때까지).
   private get canDragCamera(): boolean {
-    return (this.state === 'aiming' || this.state === 'charging') && this.controlling;
+    return (this.state === 'aiming' || this.state === 'charging') && (this.controlling || !!this.net);
   }
 
   private setupCameraDrag(): void {
