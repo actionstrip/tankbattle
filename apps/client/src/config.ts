@@ -12,12 +12,6 @@ export const CONFIG = {
   GAME_H: 768,
   FONT: '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif',
 
-  // 내 턴에 마우스를 화면 좌우 끝으로 가져가면 그쪽으로 화면이 움직인다.
-  EDGE_SCROLL: {
-    ZONE: 320,   // 화면 좌우 끝에서 이만큼(px) 안쪽에 들어오면 스크롤 시작
-    SPEED: 900,  // 맨 끝에 붙였을 때의 최대 속도 (px/초), 안쪽일수록 느리게
-  },
-
   STAGE: {
     BG: 'images/background/stage1_bg.jpg',         // 땅보다 느리게 스크롤 (시차)
     GROUND: 'images/background/stage1_ground.png', // 월드 폭에 맞춰 확대, 하단 정렬 (충돌 마스크는 npm run build:mask)

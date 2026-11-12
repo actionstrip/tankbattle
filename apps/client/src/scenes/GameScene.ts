@@ -67,7 +67,7 @@ export class GameScene extends Phaser.Scene {
 
   private drag: { x: number; scrollX: number } | null = null;
   private cameraFree = false;
-  private edgeMouse: { x: number; down: boolean } | null = null;
+  private cameraReturn: Tank | null = null; // 둘러보던 화면이 이 탱크로 부드럽게 돌아가는 중
 
   // 루프 소리 상태 (updateAiming/updateAi가 매 프레임 켜고, updateLoopSounds가 반영)
   private sndMove = false;
@@ -163,7 +163,6 @@ export class GameScene extends Phaser.Scene {
     this.debug = new URLSearchParams(location.search).has('debug');
     if (this.debug) this.setupDebug();
     this.setupCameraDrag();
-    this.setupEdgeMouse();
 
     this.sndMove = false;
     this.sndAim = false;
@@ -412,6 +411,7 @@ export class GameScene extends Phaser.Scene {
     const x = Phaser.Math.Clamp(tank.x, half, CONFIG.WORLD_W - half);
     this.drag = null;
     this.cameraFree = false;
+    this.cameraReturn = null;
     cam.stopFollow();
     cam.pan(x, CONFIG.WORLD_H / 2, 700, 'Sine.easeInOut', true, (_c: Phaser.Cameras.Scene2D.Camera, progress: number) => {
       if (progress === 1 && this.active === tank && this.state === 'aiming') this.followTank(tank);
@@ -423,7 +423,7 @@ export class GameScene extends Phaser.Scene {
     return this.cursors[dir].isDown || this.wasd[dir].isDown;
   }
 
-  // 쏘기 전(조준·충전 중)에는 화면을 끌거나 마우스를 화면 끝에 두어 맵을 둘러볼 수 있다.
+  // 쏘기 전(조준·충전 중)에는 화면을 끌어서 맵을 둘러볼 수 있다.
   // 내 차례뿐 아니라 온라인 상대 차례에도 (상대가 쏘면 포탄을 따라가므로 그때까지).
   private get canDragCamera(): boolean {
     return (this.state === 'aiming' || this.state === 'charging') && (this.controlling || !!this.net);
@@ -436,76 +436,56 @@ export class GameScene extends Phaser.Scene {
       // 버튼(무기 슬롯 등) 위를 누른 경우에는 화면을 끌지 않는다.
       if (!this.canDragCamera || over.length > 0) return;
       this.drag = { x: p.x, scrollX: cam.scrollX };
-      cam.panEffect?.reset(); // 턴 시작 카메라 이동 중이면 멈춘다
-      cam.stopFollow();
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (!this.drag || !p.isDown || !this.canDragCamera) return;
+      if (!this.cameraFree) {
+        if (Math.abs(p.x - this.drag.x) < 4) return; // 클릭하다 살짝 흔들린 건 무시
+        this.drag.x = p.x;
+        // 실제로 끌기 시작할 때 따라가기·카메라 이동을 끊는다 (누르기만 하면 그대로)
+        cam.panEffect?.reset();
+        cam.stopFollow();
+        this.cameraReturn = null;
+        this.drag.scrollX = cam.scrollX;
+      }
       const maxX = CONFIG.WORLD_W - CONFIG.GAME_W;
       cam.scrollX = Phaser.Math.Clamp(this.drag.scrollX - (p.x - this.drag.x), 0, maxX);
       this.cameraFree = true;
     });
-    // 손을 떼도 둘러보던 화면에 그대로 머문다. 발사하면 포탄을 부드럽게 따라가고(followShell),
-    // 탱크를 움직이면 다시 탱크를 따라간다. 끌지 않고 누르기만 했으면 탱크 추적을 되살린다.
-    const end = () => {
-      if (!this.drag) return;
-      this.drag = null;
-      if (!this.cameraFree && this.canDragCamera) this.followTank(this.active);
-    };
+    // 손을 떼도 둘러보던 화면에 그대로 머문다. 탱크를 움직이면 부드럽게 탱크로 돌아가고(startCameraReturn),
+    // 발사하면 포탄을 따라간다(followShell).
+    const end = () => { this.drag = null; };
     this.input.on('pointerup', end);
     this.input.on('pointerupoutside', end);
   }
 
-  // 마우스 위치를 창 전체에서 추적한다 (게임 화면 밖으로 나가도 게임 좌표로 환산).
-  // Phaser 포인터는 캔버스 밖에서는 갱신되지 않으므로 window에서 직접 받는다.
-  private setupEdgeMouse(): void {
-    this.edgeMouse = null; // { x: 게임 좌표 x, down: 버튼 눌림 여부 }
-    const onMove = (e: MouseEvent) => {
-      const rect = this.game.canvas.getBoundingClientRect();
-      if (!rect.width) return;
-      this.edgeMouse = {
-        x: (e.clientX - rect.left) * CONFIG.GAME_W / rect.width,
-        down: e.buttons !== 0,
-      };
-    };
-    const onBlur = () => { this.edgeMouse = null; }; // 다른 창으로 전환하면 멈춘다
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('blur', onBlur);
-    this.events.once('shutdown', () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('blur', onBlur);
-    });
+  // 둘러보던 화면을 탱크 쪽으로 부드럽게 되돌리기 시작한다 (매 프레임 updateCameraReturn).
+  // startFollow는 부르는 순간 화면을 대상에게 바로 옮기므로, 가까워진 뒤에 붙인다.
+  private startCameraReturn(tank: Tank): void {
+    this.cameraFree = false;
+    this.cameraReturn = tank;
   }
 
-  // 내 턴에 마우스(누르지 않은 상태)를 화면 좌우 끝에 두면 그쪽으로 화면을 민다.
-  // 게임 화면 밖(브라우저 여백·창 밖)으로 나가도 마지막 위치 기준으로 계속 반응한다.
-  // 터치 입력이거나, 버튼(무기 슬롯 등) 위에 있으면 움직이지 않는다.
-  private updateEdgeScroll(dt: number): void {
-    if (!this.canDragCamera || this.drag) return;
-    const m = this.edgeMouse;
-    const p = this.input.activePointer;
-    if (!m || m.down || p?.wasTouch) return;
-    const E = CONFIG.EDGE_SCROLL;
-    let dir = 0;
-    let depth = 0;
-    if (m.x < E.ZONE) { dir = -1; depth = (E.ZONE - m.x) / E.ZONE; }
-    else if (m.x > CONFIG.GAME_W - E.ZONE) { dir = 1; depth = (m.x - (CONFIG.GAME_W - E.ZONE)) / E.ZONE; }
-    if (!dir) return;
-    if (this.input.isOver && this.input.hitTestPointer(p).length > 0) return;
-
+  private updateCameraReturn(dt: number): void {
+    const tank = this.cameraReturn;
+    if (!tank) return;
+    if (this.drag && this.cameraFree) { this.cameraReturn = null; return; }
     const cam = this.cameras.main;
     const maxX = CONFIG.WORLD_W - CONFIG.GAME_W;
-    const next = Phaser.Math.Clamp(cam.scrollX + dir * E.SPEED * Math.min(1, depth) * dt, 0, maxX);
-    if (next === cam.scrollX) return; // 이미 맵 끝
-    cam.panEffect?.reset(); // 턴 시작 카메라 이동 중이면 멈춘다
-    cam.stopFollow();
-    cam.scrollX = next;
-    this.cameraFree = true;
+    const target = Phaser.Math.Clamp(tank.x - CONFIG.GAME_W / 2, 0, maxX);
+    const diff = target - cam.scrollX;
+    if (Math.abs(diff) < 2) {
+      this.cameraReturn = null;
+      this.followTank(tank);
+      return;
+    }
+    cam.scrollX += diff * (1 - Math.exp(-6 * dt)); // 멀수록 빠르게, 가까워질수록 천천히
   }
 
   // 둘러보던 화면을 다시 탱크로 붙인다.
   private followTank(tank: Tank): void {
     this.cameraFree = false;
+    this.cameraReturn = null;
     this.cameras.main.startFollow(tank.root, false, 0.15, 0.15);
   }
 
@@ -513,7 +493,9 @@ export class GameScene extends Phaser.Scene {
     this.drag = null;
     this.cameraFree = false;
     this.followedShell = shell;
+    this.cameraReturn = null; // 탱크로 되돌아가는 중에 쏘면 멈추고 포탄을 따라간다
     const cam = this.cameras.main;
+    cam.panEffect?.reset();
     cam.stopFollow();
     if (shell) cam.startFollow(shell.sprite, false, 0.1, 0.1);
   }
@@ -562,8 +544,8 @@ export class GameScene extends Phaser.Scene {
       case 'resolving': this.updateResolving(dt); break;
       default: break;
     }
-    this.updateEdgeScroll(dt);
 
+    this.updateCameraReturn(dt);
     this.updateLoopSounds();
     this.snow.update(dt, this.wind, time);
     this.hud.update({
@@ -600,7 +582,7 @@ export class GameScene extends Phaser.Scene {
     this.sendMove(moveDir);
     if (moveDir) moved = tank.move(moveDir, dt);
     // 둘러보다가 탱크를 움직이면 화면이 다시 탱크를 따라간다.
-    if (moved && this.cameraFree && !this.drag) this.followTank(tank);
+    if (moved && this.cameraFree && !this.drag) this.startCameraReturn(tank);
     // 이동음: 키를 누르고 있고 막히지 않았으면 (1px 미만이라 이번 프레임에 안 움직였어도) 계속
     this.sndMove = !!moveDir && !tank.blocked && !tank.falling;
     // 막힘음: 키를 누른 채 처음 막혔을 때 한 번만
