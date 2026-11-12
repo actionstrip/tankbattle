@@ -1,6 +1,6 @@
 # 테스트 기간 운영 방법
 
-테스트를 계속하면서 클라이언트를 고쳐 나가는 동안의 하루 운영 순서다. npm 스크립트별 설명은 [scripts.md](scripts.md). 명령은 모두 프로젝트 루트(`E:\inetpub\wwwroot\test\pixi_ai\fortress`)에서 실행한다.
+테스트를 계속하면서 클라이언트를 고쳐 나가는 동안의 하루 운영 순서다. npm 스크립트별 설명은 [scripts.md](scripts.md), 회사 서버에 정식 서비스할 때 부서별 요청 사항은 [service-deployment.md](service-deployment.md). 명령은 모두 프로젝트 루트(`E:\inetpub\wwwroot\test\pixi_ai\fortress`)에서 실행한다.
 
 > **2026-11 폴더 정리 후 처음 한 번만**: PM2 이름이 `fortress-server` → `game-server`로 바뀌었다.
 > 예전 이름으로 떠 있던 서버를 먼저 지운다: `npx pm2 delete fortress-server` (안 지우면 2567 포트를 계속 잡고 있다).
