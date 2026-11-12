@@ -2,6 +2,7 @@
 //   Sfx.play(id, { volume, rate, pan })  — 한 번 재생. 같은 ID는 동시에 최대 MAX_SAME개.
 //   Sfx.loop(id, on, { volume, rate, fade }) — 루프 소리를 켜고 끈다. 매 프레임 불러도 된다. fade = 페이드 ms
 //   Sfx.stopLoops()                      — 모든 루프 정지 (씬 종료 시)
+//   Bgm.start(fade) / Bgm.stop(fade)      — 게임 화면 배경음악 (sounds/bgm/*.mp3 를 무작위 순서로 이어 재생)
 // 브라우저는 첫 클릭/키 입력 전까지 소리를 막는데, howler가 그때 자동으로 오디오를 연다.
 import { Howl, Howler } from 'howler';
 
@@ -15,8 +16,7 @@ const LIST = {
   tank_hit: [0.8], tank_destroyed: [1],
   game_win: [0.8], game_lose: [0.8],
   ui_click: [0.7], weapon_select: [0.7],
-  loop1: [0.5, true], // 타이틀 화면 배경음
-  loop2: [0.5, true], // 게임 화면 배경음
+  loop1: [0.5, true], // 타이틀 화면 배경음 (게임 화면 배경음악은 아래 Bgm)
 } satisfies Record<string, [number, boolean?]>;
 
 export type SfxId = keyof typeof LIST;
@@ -91,3 +91,61 @@ function unlock(): void {
 }
 
 export const Sfx = { play, loop, stop, stopLoops, unlock };
+
+// ── 게임 화면 배경음악 ─────────────────────────────────────────
+// 시작할 때 무작위 곡부터 틀고, 곡이 끝나면 아직 안 들은 곡 중에서 다음 곡을 고른다.
+// 모든 곡을 다 들으면 다시 섞는다 (방금 들은 곡이 바로 또 나오지 않게).
+// 파일이 커서 html5 스트리밍으로, 처음 틀 때 불러온다.
+const BGM_FILES = ['Ballade_No_1.mp3','Cool_Girls.mp3'];
+const BGM_VOLUME = 0.1;
+
+const bgmHowls: Record<string, Howl> = {};
+let bgmQueue: string[] = [];
+let bgmLast: string | null = null;
+let bgmCur: Howl | null = null;
+
+function shuffle<T>(a: T[]): T[] {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function bgmHowl(file: string): Howl {
+  return (bgmHowls[file] ??= new Howl({
+    src: [`sounds/bgm/${file}`], html5: true, volume: BGM_VOLUME,
+    onend: () => { if (bgmCur === bgmHowls[file]) bgmNext(0); },
+  }));
+}
+
+function bgmNext(fade: number): void {
+  if (bgmQueue.length === 0) {
+    bgmQueue = shuffle([...BGM_FILES]);
+    if (bgmQueue.length > 1 && bgmQueue[0] === bgmLast) bgmQueue.push(bgmQueue.shift()!);
+  }
+  const file = bgmQueue.shift()!;
+  bgmLast = file;
+  const h = bgmHowl(file);
+  bgmCur = h;
+  h.stop();
+  h.volume(fade > 0 ? 0 : BGM_VOLUME);
+  h.play();
+  if (fade > 0) h.fade(0, BGM_VOLUME, fade);
+}
+
+function bgmStart(fade = 800): void {
+  if (bgmCur) return; // 이미 재생 중
+  bgmQueue = []; // 게임마다 새로 섞어 무작위 곡부터
+  bgmNext(fade);
+}
+
+function bgmStop(fade = 600): void {
+  const h = bgmCur;
+  if (!h) return;
+  bgmCur = null;
+  h.fade(h.volume() as number, 0, fade);
+  setTimeout(() => { if (bgmCur !== h) h.stop(); }, fade + 20);
+}
+
+export const Bgm = { start: bgmStart, stop: bgmStop };

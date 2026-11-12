@@ -9,7 +9,7 @@ import type { GameMode, Player, Team, Weapon, WeaponKey } from '../config';
 import { Hud } from '../hud';
 import type { GameRoom, NetSession } from '../net/session';
 import { Snow } from '../snow';
-import { Sfx } from '../sound';
+import { Sfx, Bgm } from '../sound';
 import type { SfxId } from '../sound';
 import { Tank } from '../tank';
 import type { BarrelInfo } from '../tankSlicer';
@@ -168,12 +168,13 @@ export class GameScene extends Phaser.Scene {
     this.blockedPlayed = false;
     this.events.once('shutdown', () => {
       Sfx.stopLoops();
+      Bgm.stop();
       Sfx.stop('game_win');
       Sfx.stop('game_lose');
     });
 
-    // 배경음: 게임 중 반복 (씬이 끝나면 위 stopLoops에서 함께 꺼진다)
-    Sfx.loop('loop2', true, { fade: 800 });
+    // 배경음악: bgm 폴더의 곡을 무작위 순서로 이어 재생 (씬이 끝나면 위에서 꺼진다)
+    Bgm.start(800);
 
     if (this.net) {
       this.setupNet();
@@ -854,7 +855,7 @@ export class GameScene extends Phaser.Scene {
     this.state = 'gameover';
     this.hud.hideTurnInfo();
     // 결과음이 잘 들리도록 배경음은 부드럽게 끈다.
-    Sfx.loop('loop2', false, { fade: 600 });
+    Bgm.stop(600);
     const W = CONFIG.GAME_W;
     const H = CONFIG.GAME_H;
     const D = CONFIG.DEPTH.OVERLAY;
