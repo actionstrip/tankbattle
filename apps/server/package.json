@@ -1,8 +1,8 @@
 {
-  "name": "@fortress/server",
+  "name": "@games/server",
   "private": true,
   "version": "0.1.0",
-  "description": "포트리스 게임 서버 (Colyseus 0.18)",
+  "description": "게임 서버 (Colyseus 0.18). 모든 게임의 방을 한 서버에 등록한다",
   "type": "module",
   "main": "build/index.js",
   "engines": {

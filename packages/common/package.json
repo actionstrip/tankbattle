@@ -1,0 +1,13 @@
+{
+  "name": "@games/common",
+  "private": true,
+  "version": "0.1.0",
+  "description": "모든 게임 공용 (서버·클라이언트): 채팅 메시지, 텍스트 정리, 공통 제한값. DOM·게임 엔진 사용 금지",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

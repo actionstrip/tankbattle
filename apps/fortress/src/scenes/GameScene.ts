@@ -8,7 +8,7 @@ import { CONFIG } from '../config';
 import type { GameMode, Player, Team, Weapon, WeaponKey } from '../config';
 import { Hud } from '../hud';
 import type { GameRoom, NetSession } from '../net/session';
-import { ChatBox } from '../net/chat';
+import { ChatBox } from '@games/web';
 import { Snow } from '../snow';
 import { Sfx, Bgm } from '../sound';
 import type { SfxId } from '../sound';

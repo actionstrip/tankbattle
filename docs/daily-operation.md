@@ -2,6 +2,10 @@
 
 테스트를 계속하면서 클라이언트를 고쳐 나가는 동안의 하루 운영 순서다. 명령은 모두 프로젝트 루트(`E:\inetpub\wwwroot\test\pixi_ai\fortress`)에서 실행한다.
 
+> **2026-11 폴더 정리 후 처음 한 번만**: PM2 이름이 `fortress-server` → `game-server`로 바뀌었다.
+> 예전 이름으로 떠 있던 서버를 먼저 지운다: `npx pm2 delete fortress-server` (안 지우면 2567 포트를 계속 잡고 있다).
+> 테스터 주소도 `.../apps/client/dist/` → `.../apps/fortress/dist/` 로 바뀌었으니 알려 준다.
+
 ## 하루 흐름
 
 ### 출근해서 한 번
@@ -9,7 +13,7 @@
 npm run server:start
 ```
 게임 서버(PM2, 2567)와 테스터용 IIS 클라이언트가 함께 준비된다.
-- 테스터 접속 주소: `http://10.1.7.63/test/pixi_ai/fortress/apps/client/dist/`
+- 테스터 접속 주소: `http://10.1.7.63/test/pixi_ai/fortress/apps/fortress/dist/`
 
 ### 내가 개발할 때
 ```
@@ -23,8 +27,8 @@ npm run dev:client
 
 | 바꾼 것 | 할 일 |
 |---|---|
-| 클라이언트만 (`apps/client`) | `npm run build -w @fortress/client` — 서버는 그대로. 테스터는 새로고침만 하면 새 버전 |
-| 서버나 shared (`apps/server`, `packages/shared`) | `npm run server:start` — 다시 빌드하고 서버 재시작 |
+| 탱크배틀 클라이언트만 (`apps/fortress`) | `npm run build -w @fortress/client` — 서버는 그대로. 테스터는 새로고침만 하면 새 버전 |
+| 서버나 공용 코드 (`apps/server`, `packages/*`) | `npm run server:start` — 다시 빌드하고 서버 재시작 |
 
 ### 퇴근 전
 ```

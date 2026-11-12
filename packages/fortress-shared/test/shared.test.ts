@@ -7,7 +7,7 @@ import {
 } from '../src/index';
 import type { Player } from '../src/index';
 
-const GROUND_PNG = new URL('../../../apps/client/public/images/background/stage1_ground.png', import.meta.url);
+const GROUND_PNG = new URL('../../../apps/fortress/public/images/background/stage1_ground.png', import.meta.url);
 
 describe('지형 마스크', () => {
   it('미리 만든 마스크가 땅 이미지의 알파값과 같다 (그림을 바꾸고 npm run build:mask 를 안 했으면 실패)', () => {

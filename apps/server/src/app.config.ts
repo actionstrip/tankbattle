@@ -3,7 +3,7 @@ import { LobbyRoom, defineRoom, defineServer } from 'colyseus';
 import { monitor } from '@colyseus/monitor';
 import { playground } from '@colyseus/playground';
 import { ROOMS } from '@fortress/shared';
-import { FortressRoom } from './rooms/FortressRoom';
+import { FortressRoom } from './fortress/FortressRoom';
 import { scalingOptions } from './scaling';
 
 const production = process.env.NODE_ENV === 'production';

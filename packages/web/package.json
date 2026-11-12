@@ -1,0 +1,17 @@
+{
+  "name": "@games/web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "모든 게임 공용 (브라우저 전용): 채팅창, 서버 주소, 이름·재접속 정보 저장",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@colyseus/sdk": "^0.18.10",
+    "@games/common": "*"
+  }
+}

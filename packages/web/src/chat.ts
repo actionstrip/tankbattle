@@ -1,11 +1,15 @@
-// 온라인 채팅 (대기실·게임 화면 공통).
+// 온라인 채팅 (모든 게임, 대기실·게임 화면 공통). 서버 쪽은 apps/server/src/common/chat.ts.
 // ChatLog: 방에 들어가 있는 동안 메시지를 모아 둔다 (대기실 ↔ 게임 화면을 오가도 그대로).
 // ChatBox: 화면 표시 (HTML). 한글 입력(IME) 때문에 캔버스 대신 DOM으로 그린다.
 //   docked   — 대기실 패널 안에 목록 + 입력칸 상시 표시
-//   floating — 게임 화면 왼쪽 위에 떠 있다가 몇 초 뒤 흐려진다. Enter로 입력칸을 연다.
-import { NET } from '@fortress/shared';
-import type { ChatMessage } from '@fortress/shared';
-import type { GameRoom } from './session';
+//   floating — 게임 화면 위에 떠 있다가 몇 초 뒤 흐려진다. Enter로 입력칸을 연다.
+import type { Room } from '@colyseus/sdk';
+import { CHAT } from '@games/common';
+import type { ChatMessage } from '@games/common';
+
+/** 채팅을 쓰는 방 (서버 방이 RoomChat 의 chat·chatHistory 를 가진 어떤 게임 방이든) */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ChatRoom = Room<any>;
 
 interface ChatEntry extends ChatMessage {
   /** 받은 시각 (ms). 지난 기록은 0 → 떠 있는 창에는 새로 받은 것만 잠깐 보인다 */
@@ -20,8 +24,8 @@ export class ChatLog {
   entries: ChatEntry[] = [];
   private readonly listeners = new Set<Listener>();
 
-  constructor(private readonly room: GameRoom) {
-    room.onMessage('chat', (m) => {
+  constructor(private readonly room: ChatRoom) {
+    room.onMessage('chat', (m: ChatMessage) => {
       const e: ChatEntry = { ...m, at: Date.now() };
       this.entries.push(e);
       if (this.entries.length > KEEP) this.entries.shift();
@@ -33,14 +37,14 @@ export class ChatLog {
 
   /** 서버에 보관된 최근 채팅으로 채운다 (입장·재접속 직후) */
   private async load(): Promise<void> {
-    const list = await this.room.request('chatHistory').catch(() => null);
+    const list = await (this.room.request('chatHistory') as Promise<ChatMessage[]>).catch(() => null);
     if (!list) return;
     this.entries = list.map((m) => ({ ...m, at: 0 }));
     this.emit(null);
   }
 
   send(text: string): void {
-    const t = text.trim().slice(0, NET.CHAT_MAX);
+    const t = text.trim().slice(0, CHAT.MAX);
     if (t) this.room.send('chat', { text: t });
   }
 
@@ -121,7 +125,7 @@ export class ChatBox {
     this.el = document.createElement('div');
     this.el.className = `fc-box ${mode}`;
     this.el.innerHTML = `<div class="fc-list"></div>
-      <div class="fc-row"><input class="fc-input" maxlength="${NET.CHAT_MAX}" placeholder="메시지 입력" />
+      <div class="fc-row"><input class="fc-input" maxlength="${CHAT.MAX}" placeholder="메시지 입력" />
       <button class="fc-send">보내기</button></div>
       ${mode === 'floating' ? '<div class="fc-hint">Enter 보내기 · Esc 닫기</div>' : ''}`;
     this.list = this.el.querySelector('.fc-list')!;

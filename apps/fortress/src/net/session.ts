@@ -2,9 +2,9 @@
 // 서버 주소는 VITE_SERVER_URL 하나로만 정한다 (.env.development / .env.production).
 import { Callbacks, Client } from '@colyseus/sdk';
 import type { Room } from '@colyseus/sdk';
-import { NET, ROOMS } from '@fortress/shared';
+import { ROOMS } from '@fortress/shared';
 import type { FortressRoomMetadata, TeamSize } from '@fortress/shared';
-import { ChatLog } from './chat';
+import { ChatLog, GameStorage, serverUrl as resolveServerUrl } from '@games/web';
 // 서버 정의를 타입으로만 가져온다 → 방 이름·옵션·상태·메시지 타입이 서버와 자동으로 맞는다 (번들에는 안 들어감)
 import type { server } from '../../../server/src/app.config';
 
@@ -26,32 +26,25 @@ export interface RoomListing {
   metadata: FortressRoomMetadata;
 }
 
-const NAME_KEY = 'fortress.name';
-const TOKEN_KEY = 'fortress.reconnect';
+/** 이 게임의 저장 공간 (키: fortress.name, fortress.reconnect) */
+const store = new GameStorage('fortress');
 
 /** 개발: http://localhost:2567, 운영(IIS): https://도메인/colyseus, Cloud: Cloud 주소 */
 export function serverUrl(): string {
-  const url = import.meta.env.VITE_SERVER_URL as string | undefined;
-  if (url) return url;
-  // 지정이 없으면 같은 호스트의 2567 포트
-  return `${location.protocol}//${location.hostname}:2567`;
-}
-
-function storage(): Storage | null {
-  try { return window.localStorage; } catch { return null; }
+  return resolveServerUrl(import.meta.env.VITE_SERVER_URL as string | undefined);
 }
 
 export function savedName(): string {
-  return storage()?.getItem(NAME_KEY) ?? '';
+  return store.name;
 }
 
 export function saveName(name: string): void {
-  try { storage()?.setItem(NAME_KEY, name.slice(0, NET.NAME_MAX)); } catch { /* 저장 못 해도 진행 */ }
+  store.name = name;
 }
 
 /** 새로고침 전에 온라인 방에 있었는지 (있으면 타이틀을 건너뛰고 다시 들어간다) */
 export function hasSavedSession(): boolean {
-  try { return !!window.sessionStorage.getItem(TOKEN_KEY); } catch { return false; }
+  return !!store.reconnectToken;
 }
 
 export class NetSession {
@@ -92,8 +85,7 @@ export class NetSession {
 
   /** 새로고침 직전 방이 있으면 다시 들어간다 (서버가 30초 동안 자리를 비워 둔다) */
   async resume(): Promise<GameRoom | null> {
-    let token: string | null = null;
-    try { token = window.sessionStorage.getItem(TOKEN_KEY); } catch { /* 없음 */ }
+    const token = store.reconnectToken;
     if (!token) return null;
     try {
       return this.attach(await this.client.reconnect(token) as GameRoom);
@@ -114,9 +106,7 @@ export class NetSession {
   private attach(room: GameRoom): GameRoom {
     this.room = room;
     this.chat = new ChatLog(room);
-    const remember = () => {
-      try { window.sessionStorage.setItem(TOKEN_KEY, room.reconnectionToken); } catch { /* 저장 못 해도 진행 */ }
-    };
+    const remember = () => { store.reconnectToken = room.reconnectionToken; };
     remember();
     room.onReconnect(remember);
     room.onLeave(() => {
@@ -130,6 +120,6 @@ export class NetSession {
   }
 
   private forgetToken(): void {
-    try { window.sessionStorage.removeItem(TOKEN_KEY); } catch { /* 없음 */ }
+    store.reconnectToken = null;
   }
 }

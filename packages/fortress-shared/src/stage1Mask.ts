@@ -1,5 +1,5 @@
 // 자동 생성 파일 (tools/build-mask.mjs). 직접 고치지 말 것.
-// 원본: apps/client/public/images/background/stage1_ground.png, 알파 >= 128 이면 땅
+// 원본: apps/fortress/public/images/background/stage1_ground.png, 알파 >= 128 이면 땅
 export const STAGE1_MASK = {
   w: 2560,
   h: 768,

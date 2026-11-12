@@ -8,7 +8,7 @@ const cloud = process.env.COLYSEUS_CLOUD !== undefined;
 module.exports = {
   apps: [
     {
-      name: 'fortress-server',
+      name: 'game-server',
       // 어디서 pm2 를 실행하든 이 폴더 기준으로 build/index.js 를 찾는다
       cwd: __dirname,
       script: 'build/index.js',

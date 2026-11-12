@@ -20,7 +20,7 @@ export default tseslint.config(
   },
   // Node에서 도는 스크립트·테스트·서버
   {
-    files: ['tools/**/*.{js,mjs}', 'packages/shared/test/**/*.ts', 'apps/server/**/*.{ts,js,mjs,cjs}'],
+    files: ['tools/**/*.{js,mjs}', 'packages/*/test/**/*.ts', 'apps/server/**/*.{ts,js,mjs,cjs}'],
     languageOptions: { globals: globals.node },
   },
   // CommonJS 설정 파일 (PM2 ecosystem 등)
@@ -29,12 +29,13 @@ export default tseslint.config(
     languageOptions: { sourceType: 'commonjs', globals: globals.node },
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
-  // 공용 로직은 서버(Node)에서도 돌아야 하므로 Phaser·브라우저 전용 코드를 쓰지 않는다.
+  // 공용 로직(모든 게임 공용 common, 게임별 *-shared)은 서버(Node)에서도 돌아야 하므로
+  // 게임 엔진·브라우저 전용 코드를 쓰지 않는다. (브라우저 공용 코드는 packages/web)
   {
-    files: ['packages/shared/src/**/*.ts'],
+    files: ['packages/common/src/**/*.ts', 'packages/*-shared/src/**/*.ts'],
     languageOptions: { globals: {} },
     rules: {
-      'no-restricted-imports': ['error', { patterns: ['phaser', 'phaser/*', 'howler'] }],
+      'no-restricted-imports': ['error', { patterns: ['phaser', 'phaser/*', 'pixi.js', 'pixi.js/*', 'howler', '@games/web'] }],
       'no-restricted-globals': ['error', 'window', 'document', 'location', 'navigator'],
     },
   },

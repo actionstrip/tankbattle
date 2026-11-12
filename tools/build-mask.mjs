@@ -1,4 +1,4 @@
-// 땅 이미지(PNG)의 알파값으로 충돌 마스크를 만들어 packages/shared/src/stage1Mask.ts 로 저장한다.
+// 땅 이미지(PNG)의 알파값으로 충돌 마스크를 만들어 packages/fortress-shared/src/stage1Mask.ts 로 저장한다.
 // 클라이언트와 서버가 같은 마스크를 쓰게 하려고 미리 만들어 둔다. 땅 이미지를 바꾸면 다시 실행:
 //   npm run build:mask
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const SRC = `${root}apps/client/public/images/background/stage1_ground.png`;
-const OUT = `${root}packages/shared/src/stage1Mask.ts`;
+const SRC = `${root}apps/fortress/public/images/background/stage1_ground.png`;
+const OUT = `${root}packages/fortress-shared/src/stage1Mask.ts`;
 const WORLD_W = 2560;
 const WORLD_H = 768;
 const ALPHA_SOLID = 128; // RULES.TERRAIN.ALPHA_SOLID 와 같은 값
@@ -44,7 +44,7 @@ pushLen(run);
 const b64 = Buffer.from(bytes).toString('base64');
 const lines = b64.match(/.{1,120}/g).map((l) => `    '${l}'`).join(',\n');
 writeFileSync(OUT, `// 자동 생성 파일 (tools/build-mask.mjs). 직접 고치지 말 것.
-// 원본: apps/client/public/images/background/stage1_ground.png, 알파 >= ${ALPHA_SOLID} 이면 땅
+// 원본: apps/fortress/public/images/background/stage1_ground.png, 알파 >= ${ALPHA_SOLID} 이면 땅
 export const STAGE1_MASK = {
   w: ${WORLD_W},
   h: ${WORLD_H},

@@ -1,5 +1,6 @@
 // 클라이언트·서버가 함께 쓰는 네트워크 약속 (방 이름·제한값·메타데이터 모양).
 // 메시지 payload 타입은 서버의 messages 정의에서 Client<typeof server>로 자동으로 맞춰진다.
+import { COMMON } from '@games/common';
 import type { Team } from './config';
 import type { VolleyResult } from './shot';
 import type { CarveResult, EraseOps } from './terrainMask';
@@ -14,23 +15,14 @@ export const ROOMS = {
 
 export type TeamSize = 1 | 2;
 
+/** 이름·제목 길이, 재접속 대기는 모든 게임 공통값(@games/common)을 그대로 쓴다 */
 export const NET = {
-  NAME_MAX: 12,          // 닉네임 최대 글자 수
-  TITLE_MAX: 24,         // 방 제목 최대 글자 수
-  RECONNECT_SECONDS: 30, // 접속이 끊긴 사람을 기다리는 시간
-  CHAT_MAX: 80,          // 채팅 한 줄 최대 글자 수
-  CHAT_HISTORY: 30,      // 방에 보관하는 최근 채팅 수 (늦게 들어온·재접속한 사람에게 보여 줌)
-  CHAT_INTERVAL_MS: 700, // 같은 사람이 이보다 빨리 보내면 무시 (도배 방지)
+  ...COMMON,
   FFA_MAX: 8,            // 개인전 최대 인원 (색 수)
 } as const;
 
-/** 채팅 한 줄 (서버 → 모두) */
-export interface ChatMessage {
-  name: string;
-  /** 이름 색 (팀 색 또는 개인전 자기 색) */
-  color: number;
-  text: string;
-}
+export { CHAT, cleanText } from '@games/common';
+export type { ChatMessage } from '@games/common';
 
 export type RoomPhase = 'lobby' | 'playing' | 'ended';
 
@@ -84,11 +76,3 @@ export interface ShotMessage extends VolleyResult {
 /** 무기 탄 수를 상태로 보낼 때 (무제한 = -1) */
 export const encodeStock = (n: number): number => (Number.isFinite(n) ? n : -1);
 export const decodeStock = (n: number): number => (n < 0 ? Infinity : n);
-
-/** 닉네임·제목 정리: 앞뒤 공백 제거, 제어 문자 제거, 길이 제한. 비면 fallback */
-export function cleanText(value: unknown, max: number, fallback: string): string {
-  if (typeof value !== 'string') return fallback;
-  // eslint-disable-next-line no-control-regex
-  const s = value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max);
-  return s || fallback;
-}

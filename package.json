@@ -1,18 +1,19 @@
 {
-  "name": "fortress",
+  "name": "games",
   "private": true,
   "version": "0.1.0",
-  "description": "포트리스 모노레포 (클라이언트 + Colyseus 서버 + 공용 로직)",
+  "description": "게임 모음 모노레포 (게임별 클라이언트 + 하나의 Colyseus 서버 + 공용 패키지). 구조는 docs/adding-a-game.md",
   "type": "module",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
-    "dev:client": "npm run dev -w @fortress/client --",
-    "dev:server": "npm run dev -w @fortress/server",
-    "start:server": "npm run start -w @fortress/server",
+    "dev": "concurrently -k -n server,fortress -c cyan,magenta \"npm:dev:server\" \"npm:dev:fortress\"",
+    "dev:fortress": "npm run dev -w @fortress/client --",
+    "dev:client": "npm run dev:fortress --",
+    "dev:server": "npm run dev -w @games/server",
+    "start:server": "npm run start -w @games/server",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
@@ -20,9 +21,9 @@
     "lint:fix": "eslint . --fix",
     "build:mask": "node tools/build-mask.mjs",
     "server:start": "npm run build && pm2 startOrReload apps/server/ecosystem.config.cjs --env production && pm2 save",
-    "server:stop": "pm2 stop fortress-server",
+    "server:stop": "pm2 stop game-server",
     "server:status": "pm2 status",
-    "server:logs": "pm2 logs fortress-server --lines 100"
+    "server:logs": "pm2 logs game-server --lines 100"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

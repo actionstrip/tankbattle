@@ -13,6 +13,7 @@
   "dependencies": {
     "@colyseus/sdk": "^0.18.10",
     "@fortress/shared": "*",
+    "@games/web": "*",
     "howler": "^2.2.4",
     "phaser": "4.1.0"
   },

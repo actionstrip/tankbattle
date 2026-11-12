@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "dependencies": {
+    "@games/common": "*"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p test",
     "test": "vitest run"

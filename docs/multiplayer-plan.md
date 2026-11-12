@@ -1,5 +1,9 @@
 # 포트리스 네트워크 멀티플레이 전환 계획 (모노레포 + Colyseus 0.18)
 
+> 이 문서는 전환 당시의 계획 기록이다. 이후 여러 게임을 담도록 폴더를 정리했다
+> (`apps/client` → `apps/fortress`, `packages/shared` → `packages/fortress-shared`, 서버 방 코드 → `apps/server/src/fortress/`,
+> 공용 `packages/common`·`packages/web`). 지금 구조와 새 게임 추가 방법은 [adding-a-game.md](adding-a-game.md) 참고.
+
 ## 배경
 지금 포트리스는 Phaser 4 + TS + Vite로 만든 **싱글 클라이언트** 게임이다 (CPU 대전, 한 PC 2인 핫시트, 2:2 모드).
 이것을 **여러 명이 각자 PC에서 접속하는 네트워크 게임**으로 바꾼다.

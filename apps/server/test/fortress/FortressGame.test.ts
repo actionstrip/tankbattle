@@ -3,8 +3,8 @@ import { boot } from '@colyseus/testing';
 import type { ColyseusTestServer } from '@colyseus/testing';
 import { ROOMS, RULES } from '@fortress/shared';
 import type { ShotMessage } from '@fortress/shared';
-import type { FortressRoom } from '../src/rooms/FortressRoom';
-import { server } from '../src/app.config';
+import type { FortressRoom } from '../../src/fortress/FortressRoom';
+import { server } from '../../src/app.config';
 
 /** 조건이 맞을 때까지 패치를 기다린다 */
 async function until(room: FortressRoom, cond: () => boolean, maxPatches = 400): Promise<void> {

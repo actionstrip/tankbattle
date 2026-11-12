@@ -3,7 +3,7 @@
 import Phaser from 'phaser';
 import { FFA_COLORS, NET } from '@fortress/shared';
 import { CONFIG } from '../config';
-import { ChatBox } from '../net/chat';
+import { ChatBox } from '@games/web';
 import { LobbyView } from '../net/lobbyView';
 import type { RoomViewModel } from '../net/lobbyView';
 import { NetSession, saveName, savedName } from '../net/session';
