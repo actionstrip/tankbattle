@@ -164,4 +164,4 @@
 3. **오픈**: 서버 1대 + 모니터링·알림 + 런북.
 4. **사용자가 늘면**: 서버 여러 대 + Redis(`REDIS_URI`) + sticky session 또는 서버별 공개 주소.
 
-관련 문서: [scripts.md](scripts.md) (npm 명령), [adding-a-game.md](adding-a-game.md) (저장소 구조), [multiplayer-plan.md](multiplayer-plan.md) (설계 배경).
+관련 문서: [production-operations.md](production-operations.md) (스택·배포·유지보수), [scripts.md](scripts.md) (npm 명령), [adding-a-game.md](adding-a-game.md) (저장소 구조), [multiplayer-plan.md](multiplayer-plan.md) (설계 배경).

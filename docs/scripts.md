@@ -63,4 +63,4 @@ npm run build  →  pm2 startOrReload apps/server/ecosystem.config.cjs --env pro
 `-w <패키지명>`을 붙이면 그 workspace의 스크립트만 실행한다.
 패키지명: `@fortress/client`(apps/fortress), `@games/server`(apps/server), `@fortress/shared`, `@games/common`, `@games/web`.
 
-하루 운영 순서는 [daily-operation.md](daily-operation.md), 새 게임 추가는 [adding-a-game.md](adding-a-game.md) 참고.
+하루 운영 순서는 [daily-operation.md](daily-operation.md), 상용 서비스 운영은 [production-operations.md](production-operations.md), 새 게임 추가는 [adding-a-game.md](adding-a-game.md) 참고.
