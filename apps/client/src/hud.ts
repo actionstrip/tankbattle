@@ -2,7 +2,7 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
 import type { Team } from './config';
-import { makeShell, shellContact, stepShell } from '@fortress/shared';
+import { makeShell, shellContact, sideOf, stepShell } from '@fortress/shared';
 import type { ShellState } from '@fortress/shared';
 import type { GameScene } from './scenes/GameScene';
 import type { Tank } from './tank';
@@ -53,6 +53,8 @@ export class Hud {
   private readonly world: Phaser.GameObjects.Graphics;
   private readonly teamMode: boolean;
   private readonly cards: { rows: CardRow[] }[];
+  /** 상단 편 카드 아래 끝 y (채팅창을 그 아래에 띄운다) */
+  cardsBottom = 0;
   private readonly timerPos: { x: number; y: number; r: number };
   private readonly timer: Phaser.GameObjects.Text;
   private readonly windBox: Rect;
@@ -101,23 +103,34 @@ export class Hud {
     this.world = scene.add.graphics().setDepth(CONFIG.DEPTH.WORLD_UI);
     this.teamMode = tanks.length > 2;
 
-    // ---- 상단 좌우: 팀 카드 (이름 + 소속 탱크 체력) ----
-    this.cards = (['blue', 'red'] as Team[]).map((team, side) => {
-      const members = tanks.filter((t) => t.player.team === team);
+    // ---- 상단 좌우: 편 카드 (이름 + 소속 탱크 체력) ----
+    // 두 편(1:1, 2:2 팀전, 2명 개인전)이면 좌우에 하나씩, 셋 이상(개인전)이면 왼쪽에 한 장으로 모두.
+    const sides = [...new Set(tanks.map((t) => sideOf(t.player)))];
+    const ffaList = sides.length > 2;
+    const groups = ffaList ? [tanks] : sides.map((s) => tanks.filter((t) => sideOf(t.player) === s));
+    this.cards = groups.map((members, side) => {
       const w = 270;
       const h = 40 + members.length * 22;
       const x = side === 0 ? 16 : W - 16 - w;
       const y = 14;
-      const color = members[0].player.color;
+      const color = ffaList ? UI.GOLD : members[0].player.color;
       uiPanel(this.panels, x, y, w, h, { accent: color });
-      const title = this.teamMode ? CONFIG.TEAMS[team] : members[0].player.name;
+      this.cardsBottom = Math.max(this.cardsBottom, y + h);
+      const title = ffaList ? `개인전 (${members.length}명)`
+        : members.length > 1 ? CONFIG.TEAMS[members[0].player.team as Team] : members[0].player.name;
       text(x + 20, y + 9, 16).setText(title);
-      const rows = members.map((t, i) => ({
-        tank: t,
-        name: text(x + 20, y + 35 + i * 22, 13, { color: UI.MUTED }).setText(this.teamMode ? t.player.name : '체력'),
-        hp: text(x + w - 14, y + 35 + i * 22, 13).setOrigin(1, 0),
-        bar: { x: x + 74, y: y + 39 + i * 22, w: w - 74 - 52 },
-      }));
+      const rows = members.map((t, i) => {
+        const name = text(x + 20, y + 35 + i * 22, 13, { color: UI.MUTED })
+          .setText(this.teamMode ? t.player.name : '체력');
+        // 개인전 목록: 이름을 자기 탱크 색으로
+        if (ffaList) name.setColor(`#${t.player.color.toString(16).padStart(6, '0')}`);
+        return {
+          tank: t,
+          name,
+          hp: text(x + w - 14, y + 35 + i * 22, 13).setOrigin(1, 0),
+          bar: { x: x + 74, y: y + 39 + i * 22, w: w - 74 - 52 },
+        };
+      });
       return { rows };
     });
 
@@ -237,7 +250,7 @@ export class Hud {
     this.arrow = scene.add.image(0, 0, 'arrow', this.arrowFrames[0])
       .setOrigin(0.5, 1).setScale(CONFIG.TANK.MARKER_SCALE)
       .setDepth(CONFIG.DEPTH.WORLD_UI).setVisible(false);
-    // 팀전에서는 같은 색 탱크를 구분하도록 탱크 아래에 이름표를 단다.
+    // 3대 이상(팀전·개인전)이면 누가 누군지 알 수 있게 탱크 아래에 이름표를 단다.
     this.tags = this.teamMode ? tanks.map((t) => uiText(scene, 0, 0, 13, { stroke: 4 })
       .setText(t.player.name).setOrigin(0.5, 0).setDepth(CONFIG.DEPTH.WORLD_UI)) : [];
   }

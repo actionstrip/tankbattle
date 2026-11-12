@@ -1,7 +1,7 @@
 // 로비·대기실 화면 (HTML). 닉네임·방 제목 입력이 필요해서 캔버스 대신 DOM으로 그린다.
 // 게임 캔버스 위에 겹쳐 띄우고, LobbyScene이 끝나면 없앤다.
 import { NET } from '@fortress/shared';
-import type { RoomListing } from './session';
+import type { RoomKind, RoomListing } from './session';
 
 const CSS = `
 .fl-root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -35,6 +35,10 @@ const CSS = `
 .fl-team h3 { margin: 0 0 8px; font-size: 16px; color: var(--c); }
 .fl-player { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 15px; }
 .fl-player.me { font-weight: 700; }
+.fl-ffa { margin-bottom: 14px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; align-content: start; }
+.fl-ffa h3 { grid-column: 1 / -1; }
+@media (max-width: 520px) { .fl-ffa { grid-template-columns: 1fr; } }
+.fl-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255,255,255,0.15); }
 .fl-ready { margin-left: auto; font-size: 12px; color: #4ade80; }
 .fl-wait { margin-left: auto; font-size: 12px; color: #64748b; }
 .fl-msg { min-height: 20px; font-size: 13px; color: #fca5a5; margin: 4px 0 10px; }
@@ -42,7 +46,7 @@ const CSS = `
 `;
 
 export interface BrowseHandlers {
-  onCreate(name: string, title: string, teamSize: 1 | 2): void;
+  onCreate(name: string, title: string, kind: RoomKind): void;
   onJoin(name: string, roomId: string): void;
   onBack(): void;
 }
@@ -55,11 +59,15 @@ export interface RoomViewPlayer {
   connected: boolean;
   host: boolean;
   me: boolean;
+  /** 개인전 자기 색 (CSS) */
+  color: string;
 }
 
 export interface RoomViewModel {
   title: string;
   teamSize: number;
+  ffa: boolean;
+  maxPlayers: number;
   phase: string;
   players: RoomViewPlayer[];
   amHost: boolean;
@@ -143,6 +151,7 @@ export class LobbyView {
       <div class="fl-row">
         <button class="fl-btn gold" data-a="c1">1:1 방 만들기</button>
         <button class="fl-btn gold" data-a="c2">2:2 방 만들기</button>
+        <button class="fl-btn gold" data-a="cf">개인전 방 만들기</button>
         <span style="flex:1"></span>
         <button class="fl-btn" data-a="back">타이틀로</button>
       </div>`;
@@ -152,9 +161,10 @@ export class LobbyView {
     this.msgEl = this.content.querySelector('.fl-msg');
     this.listEl = this.content.querySelector('[data-f=list]');
     this.browse = { name: nameEl, h };
-    const create = (size: 1 | 2) => h.onCreate(nameEl.value.trim(), titleEl.value.trim(), size);
+    const create = (kind: RoomKind) => h.onCreate(nameEl.value.trim(), titleEl.value.trim(), kind);
     this.content.querySelector('[data-a=c1]')!.addEventListener('click', () => create(1));
     this.content.querySelector('[data-a=c2]')!.addEventListener('click', () => create(2));
+    this.content.querySelector('[data-a=cf]')!.addEventListener('click', () => create('ffa'));
     this.content.querySelector('[data-a=back]')!.addEventListener('click', () => h.onBack());
     if (!name) nameEl.focus();
   }
@@ -174,7 +184,8 @@ export class LobbyView {
       const off = playing || full || r.locked;
       const el = document.createElement('div');
       el.className = `fl-item${off ? ' off' : ''}`;
-      el.innerHTML = `<span class="fl-tag">${r.metadata.teamSize === 2 ? '2:2' : '1:1'}</span>
+      const kind = r.metadata.ffa ? '개인전' : r.metadata.teamSize === 2 ? '2:2' : '1:1';
+      el.innerHTML = `<span class="fl-tag">${kind}</span>
         <span style="flex:1">${esc(r.metadata.title)}</span>
         <span class="fl-sub">${r.clients}/${r.maxClients}</span>
         <span class="fl-tag">${playing ? '게임 중' : full ? '가득 참' : '대기 중'}</span>`;
@@ -188,32 +199,45 @@ export class LobbyView {
   showRoom(m: RoomViewModel, h: RoomHandlers): void {
     this.browse = null;
     this.listEl = null;
+    const row = (p: RoomViewPlayer) => `<div class="fl-player${p.me ? ' me' : ''}">
+        ${m.ffa ? `<span class="fl-dot" style="background:${p.color}"></span>` : ''}
+        ${esc(p.name)}${p.host ? ' <span class="fl-tag">방장</span>' : ''}${p.me ? ' <span class="fl-sub">(나)</span>' : ''}
+        ${!p.connected ? '<span class="fl-wait">재접속 대기</span>'
+          : p.host || m.ffa ? '' : p.ready ? '<span class="fl-ready">준비 완료</span>' : '<span class="fl-wait">대기</span>'}
+      </div>`;
     const team = (key: string, label: string, color: string) => {
       const members = m.players.filter((p) => p.team === key);
-      const rows = members.map((p) => `<div class="fl-player${p.me ? ' me' : ''}">
-          ${esc(p.name)}${p.host ? ' <span class="fl-tag">방장</span>' : ''}${p.me ? ' <span class="fl-sub">(나)</span>' : ''}
-          ${!p.connected ? '<span class="fl-wait">재접속 대기</span>'
-            : p.host ? '' : p.ready ? '<span class="fl-ready">준비 완료</span>' : '<span class="fl-wait">대기</span>'}
-        </div>`).join('');
       const empty = Array.from({ length: Math.max(0, m.teamSize - members.length) },
         () => '<div class="fl-player fl-sub">빈 자리</div>').join('');
-      return `<div class="fl-team" style="--c:${color}"><h3>${label}</h3>${rows}${empty}</div>`;
+      return `<div class="fl-team" style="--c:${color}"><h3>${label}</h3>${members.map(row).join('')}${empty}</div>`;
     };
     const ended = m.phase === 'ended';
+    const enough = m.players.length >= 2;
+    // 개인전: 팀·준비 없이 한 목록. 방장은 2명 이상이면 언제든 시작
+    const seats = m.ffa
+      ? `<div class="fl-team fl-ffa" style="--c:#fbbf24"><h3>참가자 ${m.players.length}/${m.maxPlayers}</h3>
+          ${m.players.map(row).join('')}</div>`
+      : `<div class="fl-teams">${team('blue', '블루팀', '#3b82f6')}${team('red', '레드팀', '#ef4444')}</div>`;
+    const info = ended ? '방장이 대기실로 돌아오면 다음 판을 준비할 수 있어요'
+      : m.ffa ? (enough ? (m.amHost ? '원할 때 시작하세요. 모두가 서로의 적이에요' : '방장이 시작하면 바로 시작돼요')
+        : '2명 이상 모이면 시작할 수 있어요')
+        : '';
+    const startBtn = m.amHost
+      ? `<button class="fl-btn gold" data-a="start" ${ended || (m.ffa && !enough) ? 'disabled' : ''}>게임 시작</button>`
+      : m.ffa ? ''
+        : `<button class="fl-btn gold" data-a="ready" ${ended ? 'disabled' : ''}>${m.myReady ? '준비 취소' : '준비'}</button>`;
     this.content.innerHTML = `
-      <div class="fl-title">${esc(m.title)} <span class="fl-sub">${m.teamSize === 2 ? '2:2 팀전' : '1:1'}</span></div>
-      <div class="fl-teams">${team('blue', '블루팀', '#3b82f6')}${team('red', '레드팀', '#ef4444')}</div>
-      <div class="fl-msg ${ended ? 'info' : ''}">${ended ? '방장이 대기실로 돌아오면 다음 판을 준비할 수 있어요' : ''}</div>
+      <div class="fl-title">${esc(m.title)} <span class="fl-sub">${m.ffa ? '개인전' : m.teamSize === 2 ? '2:2 팀전' : '1:1'}</span></div>
+      ${seats}
+      <div class="fl-msg ${info ? 'info' : ''}">${info}</div>
       <div class="fl-row">
-        <button class="fl-btn" data-a="team" ${ended ? 'disabled' : ''}>팀 바꾸기</button>
-        ${m.amHost
-          ? `<button class="fl-btn gold" data-a="start" ${ended ? 'disabled' : ''}>게임 시작</button>`
-          : `<button class="fl-btn gold" data-a="ready" ${ended ? 'disabled' : ''}>${m.myReady ? '준비 취소' : '준비'}</button>`}
+        ${m.ffa ? '' : `<button class="fl-btn" data-a="team" ${ended ? 'disabled' : ''}>팀 바꾸기</button>`}
+        ${startBtn}
         <span style="flex:1"></span>
         <button class="fl-btn" data-a="leave">나가기</button>
       </div>`;
     this.msgEl = this.content.querySelector('.fl-msg');
-    this.content.querySelector('[data-a=team]')!.addEventListener('click', () => h.onSwitchTeam());
+    this.content.querySelector('[data-a=team]')?.addEventListener('click', () => h.onSwitchTeam());
     this.content.querySelector('[data-a=start]')?.addEventListener('click', () => h.onStart());
     this.content.querySelector('[data-a=ready]')?.addEventListener('click', () => h.onReady(!m.myReady));
     this.content.querySelector('[data-a=leave]')!.addEventListener('click', () => h.onLeave());

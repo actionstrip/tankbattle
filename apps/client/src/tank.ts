@@ -29,7 +29,8 @@ export class Tank extends TankBody {
     const name = player.sprite;
     const bo = barrelInfo.origin;
     this.barrel = scene.add.image(this.pivot.x, this.pivot.y, 'tank_barrel').setOrigin(bo.x, bo.y);
-    const src = sourceImage(scene, `tank_${name}_body_src`);
+    // 몸체 원본 그림은 모두 같은 크기 (개인전 색은 원본 없이 레드에서 만든 것)
+    const src = sourceImage(scene, `tank_${S.COLORS[0]}_body_src`);
     this.body = scene.add.image(0, 0, `tank_${name}_body`)
       .setOrigin(S.ORIGIN.x / src.width, S.ORIGIN.y / src.height);
     // 배치 시안대로 포신(고리 부분)이 몸체 위에 그려진다.

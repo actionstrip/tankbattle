@@ -1,4 +1,4 @@
-import { RULES } from './config';
+import { RULES, sideOf } from './config';
 import type { PlayerDef } from './config';
 import type { Rng } from './rng';
 import type { TerrainMask } from './terrainMask';
@@ -29,7 +29,8 @@ export function randomizeSpawns(players: PlayerDef[], terrain: TerrainMask, rng:
   });
   // 가장 가까운 적을 바라보게 한다.
   for (const p of players) {
-    const foes = players.filter((q) => q.team !== p.team);
+    const foes = players.filter((q) => sideOf(q) !== sideOf(p));
+    if (!foes.length) continue;
     const near = foes.reduce((a, b) => (Math.abs(b.spawnX - p.spawnX) < Math.abs(a.spawnX - p.spawnX) ? b : a));
     p.facing = near.spawnX >= p.spawnX ? 1 : -1;
   }

@@ -2,9 +2,42 @@
 // 좌표 상수(TANK_SHEET)는 포구 위치 판정에도 쓰이므로 @fortress/shared 에 있다.
 // 런타임에 미리 축소한 캔버스 텍스처로 만든다 (축소 계단 현상 방지).
 import type Phaser from 'phaser';
-import { TANK_SHEET } from '@fortress/shared';
+import { FFA_COLORS, TANK_SHEET } from '@fortress/shared';
 
 export { TANK_SHEET };
+
+/** 빨간 계열 픽셀(색상 0±30°, 채도 있음)의 색상만 hue(도)로 바꾼다. 밝기·채도는 유지 */
+function recolorReds(d: Uint8ClampedArray, hue: number): void {
+  const h2 = hue / 360;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    const r = d[i] / 255;
+    const g = d[i + 1] / 255;
+    const b = d[i + 2] / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const delta = max - min;
+    if (max !== r || delta < 0.12) continue;           // 빨강이 가장 강하고 채도가 있는 픽셀만
+    const h = ((g - b) / delta) * 60;                    // -60 ~ 60 (빨강 = 0)
+    if (h > 30 || h < -30) continue;                     // 주황빛(크림색 장갑·불빛)은 그대로
+    const l = (max + min) / 2;
+    const s = delta / (1 - Math.abs(2 * l - 1) || 1);
+    const nh = (h2 + h / 360 + 1) % 1;
+    // HSL → RGB
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const ch = (t: number) => {
+      const u = (t + 1) % 1;
+      if (u < 1 / 6) return p + (q - p) * 6 * u;
+      if (u < 1 / 2) return q;
+      if (u < 2 / 3) return p + (q - p) * (2 / 3 - u) * 6;
+      return p;
+    };
+    d[i] = ch(nh + 1 / 3) * 255;
+    d[i + 1] = ch(nh) * 255;
+    d[i + 2] = ch(nh - 1 / 3) * 255;
+  }
+}
 
 export interface BarrelInfo {
   /** 포신 텍스처에서 회전축 위치 (0~1) */
@@ -29,6 +62,19 @@ export function sliceTanks(scene: Phaser.Scene): BarrelInfo {
     body.context.imageSmoothingQuality = 'high';
     body.context.drawImage(bodyImg, 0, 0, body.width, body.height);
     body.refresh();
+  }
+
+  // 개인전 색: 레드 몸체에서 빨간 부분만 색상을 돌려 만든다 (크림색 장갑·회색 바퀴는 그대로)
+  const red = scene.textures.get('tank_red_body').getSourceImage() as HTMLCanvasElement;
+  for (const c of FFA_COLORS) {
+    if (c.hue === undefined || scene.textures.exists(`tank_${c.sprite}_body`)) continue;
+    const tex = scene.textures.createCanvas(`tank_${c.sprite}_body`, red.width, red.height)!;
+    const ctx = tex.context;
+    ctx.drawImage(red, 0, 0);
+    const img = ctx.getImageData(0, 0, red.width, red.height);
+    recolorReds(img.data, c.hue);
+    ctx.putImageData(img, 0, 0);
+    tex.refresh();
   }
 
   // 길이 줄이기: 굵기가 일정한 가운데 관 부분을 잘라 내고 양쪽을 붙인다.

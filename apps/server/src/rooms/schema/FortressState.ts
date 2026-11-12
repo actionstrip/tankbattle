@@ -12,6 +12,8 @@ export const PlayerState = schema({
   connected: t.boolean().default(true),
   /** 들어온 순서 (방장 넘길 때·턴 순서에 사용) */
   joinOrder: t.number(),
+  /** 개인전 색 자리 (FFA_COLORS 번호). 팀전에서는 쓰지 않음 */
+  slot: t.number().default(0),
 }, 'PlayerState');
 export type PlayerState = SchemaType<typeof PlayerState>;
 
@@ -21,6 +23,8 @@ export const TankState = schema({
   owner: t.string(),
   name: t.string(),
   team: t.string(),
+  /** 편 (팀전 = 팀, 개인전 = 사람마다 다름). 승패 판정 기준 */
+  side: t.string(),
   color: t.number(),
   sprite: t.string(),
   x: t.number(),
@@ -41,6 +45,8 @@ export const FortressState = schema({
   title: t.string(),
   /** 팀당 인원 (1 = 1:1, 2 = 2:2) */
   teamSize: t.number().default(1),
+  /** 개인전 방 */
+  ffa: t.boolean().default(false),
   /** 방장 sessionId */
   hostId: t.string(),
   /** key = sessionId */
@@ -57,7 +63,7 @@ export const FortressState = schema({
   wind: t.number().default(0),
   /** 남은 시간 (초, 0.1초 단위로 갱신) */
   timeLeft: t.number().default(0),
-  /** 'blue' | 'red' | 'draw' | '' */
+  /** 이긴 편 (팀전 'blue' | 'red', 개인전 'p<자리>') | 'draw' | '' */
   winner: t.string().default(''),
 }, 'FortressState');
 export type FortressState = SchemaType<typeof FortressState>;

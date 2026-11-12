@@ -59,8 +59,6 @@ const CSS = `
 .fc-list { overflow-y: auto; overflow-x: hidden; word-break: break-all; }
 .fc-line { padding: 2px 0; line-height: 1.35; }
 .fc-name { font-weight: 700; margin-right: 6px; }
-.fc-name.blue { color: #60a5fa; }
-.fc-name.red { color: #f87171; }
 .fc-row { display: flex; gap: 8px; margin-top: 8px; }
 .fc-input { flex: 1; min-width: 0; background: #0b1a2b; border: 1px solid #334155; color: #e5edf7; border-radius: 8px;
   padding: 7px 10px; font-size: 14px; font-family: inherit; }
@@ -237,7 +235,8 @@ export class ChatBox {
     const el = document.createElement('div');
     el.className = 'fc-line';
     const name = document.createElement('span');
-    name.className = `fc-name ${e.team}`;
+    name.className = 'fc-name';
+    name.style.color = `#${(e.color ?? 0xe5edf7).toString(16).padStart(6, '0')}`;
     name.textContent = e.name;
     el.append(name, document.createTextNode(e.text));
     if (this.mode === 'floating') {

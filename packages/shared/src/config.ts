@@ -23,6 +23,8 @@ export type Team = 'blue' | 'red';
 export interface PlayerDef {
   name: string;
   team: Team;
+  /** 편 (같은 편끼리는 한 팀). 없으면 team. 개인전에서는 사람마다 다르다 */
+  side?: string;
   color: number;
   sprite: string;
   spawnX: number;
@@ -32,6 +34,29 @@ export interface PlayerDef {
 export interface Player extends PlayerDef {
   ai: boolean;
 }
+
+/** 같은 편인지 가르는 값 (팀전 = 팀, 개인전 = 사람마다 다름) */
+export function sideOf(p: { team: Team; side?: string }): string {
+  return p.side || p.team;
+}
+
+/** 개인전 색 (들어온 자리 순서). hue가 있으면 레드 몸체 그림의 빨간 부분 색상을 그 값으로 돌려 만든다 */
+export interface FfaColor {
+  sprite: string;
+  color: number;
+  /** 바꿀 색상 (도, 0~360). 블루·레드는 원본 그림 그대로라 없음 */
+  hue?: number;
+}
+export const FFA_COLORS: readonly FfaColor[] = [
+  { sprite: 'blue', color: 0x3b82f6 },
+  { sprite: 'red', color: 0xef4444 },
+  { sprite: 'green', color: 0x22c55e, hue: 130 },
+  { sprite: 'yellow', color: 0xeab308, hue: 50 },
+  { sprite: 'purple', color: 0xa855f7, hue: 275 },
+  { sprite: 'orange', color: 0xf97316, hue: 26 },
+  { sprite: 'cyan', color: 0x06b6d4, hue: 188 },
+  { sprite: 'pink', color: 0xec4899, hue: 325 },
+];
 
 export type GameMode = 'cpu' | '2p' | '2v2' | '2v2hot';
 

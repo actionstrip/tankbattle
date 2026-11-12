@@ -2,7 +2,9 @@
 import { Room, validate } from 'colyseus';
 import type { Client as ColyseusClient, Delayed } from 'colyseus';
 import { z } from 'zod';
-import { NET, RULES, TEAMS, TIMING, cleanText, encodeStock, randomSeed } from '@fortress/shared';
+import {
+  FFA_COLORS, NET, RULES, TEAMS, TIMING, cleanText, encodeStock, randomSeed, sideOf,
+} from '@fortress/shared';
 import type {
   ChatMessage, FortressJoinOptions, FortressRoomMetadata, RoomPhase, ShotMessage, Team, TeamSize, TerrainOp,
 } from '@fortress/shared';
@@ -45,7 +47,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
       const clean = cleanText(text, NET.CHAT_MAX, '');
       if (!clean) return;
       this.lastChatAt.set(client.sessionId, now);
-      const msg: ChatMessage = { name: p.name, team: p.team as Team, text: clean };
+      const msg: ChatMessage = { name: p.name, color: this.chatColor(p), text: clean };
       this.chatLog.push(msg);
       if (this.chatLog.length > NET.CHAT_HISTORY) this.chatLog.shift();
       this.broadcast('chat', msg);
@@ -59,7 +61,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
     /** 팀 바꾸기 (자리가 있을 때만) */
     setTeam: validate(z.object({ team: teamSchema }), (client: Client, { team }) => {
       const p = this.player(client);
-      if (!p || this.state.phase !== 'lobby' || p.team === team) return;
+      if (!p || this.state.ffa || this.state.phase !== 'lobby' || p.team === team) return;
       if (this.teamCount(team) >= this.state.teamSize) return;
       p.team = team;
       p.ready = false;
@@ -121,12 +123,14 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
 
   onCreate(options: FortressJoinOptions & { timeScale?: number }): void {
     if (process.env.NODE_ENV === 'test' && typeof options.timeScale === 'number') this.timeScale = options.timeScale;
+    const ffa = options.ffa === true;
     const teamSize: TeamSize = options.teamSize === 2 ? 2 : 1;
-    this.maxClients = teamSize * 2;
+    this.maxClients = ffa ? NET.FFA_MAX : teamSize * 2;
+    this.state.ffa = ffa;
     this.state.teamSize = teamSize;
     this.state.title = cleanText(options.title, NET.TITLE_MAX, '포트리스 한 판');
     this.state.phase = 'lobby';
-    this.metadata = { title: this.state.title, teamSize, phase: 'lobby' };
+    this.metadata = { title: this.state.title, teamSize, ffa, phase: 'lobby' };
     this.setTimestep((dtMs) => this.update(dtMs / 1000), TICK_MS);
   }
 
@@ -134,8 +138,9 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
     const order = this.joinCounter++;
     const p = new PlayerState();
     p.name = cleanText(options?.name, NET.NAME_MAX, `플레이어${order + 1}`);
-    // 사람이 적은 팀으로 (같으면 블루)
+    // 사람이 적은 팀으로 (같으면 블루). 개인전은 팀이 없고 비어 있는 색 자리를 받는다
     p.team = this.teamCount('blue') <= this.teamCount('red') ? 'blue' : 'red';
+    if (this.state.ffa) p.slot = this.freeSlot();
     p.ready = false;
     p.connected = true;
     p.joinOrder = order;
@@ -181,8 +186,8 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
   private startGame(seed: number): void {
     const seats = [...this.state.players.entries()]
       .sort(([, a], [, b]) => a.joinOrder - b.joinOrder)
-      .map(([sessionId, p]) => ({ sessionId, name: p.name, team: p.team as Team }));
-    const m = new Match(seed, seats);
+      .map(([sessionId, p]) => ({ sessionId, name: p.name, team: p.team as Team, slot: p.slot }));
+    const m = new Match(seed, seats, this.state.ffa);
     this.match = m;
 
     this.state.tanks.clear();
@@ -191,6 +196,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
       s.owner = m.owners[i];
       s.name = t.player.name;
       s.team = t.player.team;
+      s.side = sideOf(t.player);
       s.color = t.player.color;
       s.sprite = t.player.sprite;
       this.state.tanks.push(s);
@@ -234,7 +240,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
       if (m.timeLeft < -TIMING.FIRE_GRACE_S
         || (away && m.timeLeft < RULES.TURN_SECONDS - TIMING.DISCONNECTED_TURN_S)
         || m.active!.dead
-        || m.aliveTeams().length < 2) { // 상대 팀이 모두 나갔거나 추락
+        || m.aliveSides().length < 2) { // 상대가 모두 나갔거나 추락
         this.skipTurn();
       }
     }
@@ -260,9 +266,9 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
 
   private endTurn(): void {
     const m = this.match!;
-    const teams = m.aliveTeams();
-    if (teams.length < 2) {
-      this.state.winner = teams[0] ?? 'draw';
+    const sides = m.aliveSides();
+    if (sides.length < 2) {
+      this.state.winner = sides[0] ?? 'draw';
       this.state.turnPhase = '';
       this.setPhase('ended');
       return;
@@ -338,8 +344,24 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
     this.state.hostId = next;
   }
 
+  /** 개인전: 아직 아무도 쓰지 않는 가장 앞 색 자리 */
+  private freeSlot(): number {
+    const used = new Set<number>();
+    this.state.players.forEach((p) => used.add(p.slot));
+    for (let i = 0; i < FFA_COLORS.length; i++) if (!used.has(i)) return i;
+    return used.size % FFA_COLORS.length;
+  }
+
+  /** 채팅 이름 색: 개인전은 자기 색, 팀전은 팀 색 (어두운 바탕에서 읽기 쉽게 밝은 쪽) */
+  private chatColor(p: PlayerState): number {
+    if (this.state.ffa) return FFA_COLORS[p.slot % FFA_COLORS.length].color;
+    return p.team === 'red' ? 0xf87171 : 0x60a5fa;
+  }
+
   private cannotStartReason(): string | null {
     if (this.state.phase !== 'lobby') return '이미 시작했어요';
+    // 개인전: 준비 없이 2명 이상이면 방장이 언제든 시작
+    if (this.state.ffa) return this.state.players.size >= 2 ? null : '2명 이상 모여야 시작할 수 있어요';
     for (const team of TEAMS) {
       if (this.teamCount(team) !== this.state.teamSize) return '양 팀 인원이 다 차야 시작할 수 있어요';
     }

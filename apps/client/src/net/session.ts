@@ -14,6 +14,9 @@ export type LobbyRoom = Room<ServerType['~rooms']['lobby']['~room']>;
 export type GameState = GameRoom['state'];
 export type TankNetState = GameState['tanks'][number];
 
+/** 만들 방 종류: 1:1, 2:2 팀전, 개인전 */
+export type RoomKind = TeamSize | 'ffa';
+
 /** 방 목록 한 줄 */
 export interface RoomListing {
   roomId: string;
@@ -77,8 +80,10 @@ export class NetSession {
     return () => { void lobby.leave(); };
   }
 
-  async create(name: string, title: string, teamSize: TeamSize): Promise<GameRoom> {
-    return this.attach(await this.client.create(ROOMS.FORTRESS, { name, title, teamSize }));
+  /** kind: 1 = 1:1, 2 = 2:2 팀전, 'ffa' = 개인전 */
+  async create(name: string, title: string, kind: RoomKind): Promise<GameRoom> {
+    const opts = kind === 'ffa' ? { name, title, ffa: true } : { name, title, teamSize: kind };
+    return this.attach(await this.client.create(ROOMS.FORTRESS, opts));
   }
 
   async join(roomId: string, name: string): Promise<GameRoom> {

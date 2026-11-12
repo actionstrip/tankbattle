@@ -21,12 +21,14 @@ export const NET = {
   CHAT_MAX: 80,          // 채팅 한 줄 최대 글자 수
   CHAT_HISTORY: 30,      // 방에 보관하는 최근 채팅 수 (늦게 들어온·재접속한 사람에게 보여 줌)
   CHAT_INTERVAL_MS: 700, // 같은 사람이 이보다 빨리 보내면 무시 (도배 방지)
+  FFA_MAX: 8,            // 개인전 최대 인원 (색 수)
 } as const;
 
 /** 채팅 한 줄 (서버 → 모두) */
 export interface ChatMessage {
   name: string;
-  team: Team;
+  /** 이름 색 (팀 색 또는 개인전 자기 색) */
+  color: number;
   text: string;
 }
 
@@ -36,6 +38,8 @@ export type RoomPhase = 'lobby' | 'playing' | 'ended';
 export interface FortressRoomMetadata {
   title: string;
   teamSize: TeamSize;
+  /** 개인전 (모두가 서로 적, 2명 이상이면 언제든 시작) */
+  ffa: boolean;
   phase: RoomPhase;
 }
 
@@ -45,6 +49,7 @@ export interface FortressJoinOptions {
   /** 방을 만들 때만 */
   title?: string;
   teamSize?: TeamSize;
+  ffa?: boolean;
 }
 
 export const TEAMS: readonly Team[] = ['blue', 'red'];

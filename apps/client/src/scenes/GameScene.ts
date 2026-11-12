@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {
   Rng, blastOf, decodeStock, digBehindTank, makeShell, planAiShot, randomSeed, randomizeSpawns, shellContact,
-  shellOffsets, splashDamage, stepShell,
+  shellOffsets, sideOf, splashDamage, stepShell,
 } from '@fortress/shared';
 import type { AiPlan, HitKind, ShellImpact, ShellState, ShotMessage, TerrainOp } from '@fortress/shared';
 import { CONFIG } from '../config';
@@ -124,7 +124,7 @@ export class GameScene extends Phaser.Scene {
     if (this.net) {
       // 온라인: 서버가 정한 순서·위치 그대로
       players = this.room.state.tanks.map((t) => ({
-        name: t.name, team: t.team as Team, color: t.color, sprite: t.sprite, spawnX: t.x, facing: t.facing, ai: false,
+        name: t.name, team: t.team as Team, side: t.side, color: t.color, sprite: t.sprite, spawnX: t.x, facing: t.facing, ai: false,
       }));
     } else {
       const M = CONFIG.MODES[this.mode] || CONFIG.MODES.cpu;
@@ -198,7 +198,7 @@ export class GameScene extends Phaser.Scene {
       canvas: this.game.canvas,
       gameW: CONFIG.GAME_W,
       x: 16,
-      y: this.tanks.length > 2 ? 126 : 104, // 팀 카드 바로 아래
+      y: this.hud.cardsBottom + 28, // 편 카드 바로 아래
       w: 380,
     });
     const keyboard = this.input.keyboard!;
@@ -318,7 +318,7 @@ export class GameScene extends Phaser.Scene {
     if (st.phase === 'ended'
       && (this.state === 'idle' || this.state === 'aiming' || this.state === 'charging' || this.state === 'waiting')) {
       this.syncTanksFromServer(true);
-      this.endGame(st.winner === 'blue' || st.winner === 'red' ? st.winner : null);
+      this.endGame(st.winner && st.winner !== 'draw' ? st.winner : null);
       return;
     }
 
@@ -425,9 +425,9 @@ export class GameScene extends Phaser.Scene {
 
   private get isAiTurn(): boolean { return !!this.active?.player.ai; }
 
-  // 살아 있는 탱크가 남은 팀 목록
-  private aliveTeams(): Team[] {
-    return [...new Set(this.tanks.filter((t) => !t.dead).map((t) => t.player.team))];
+  // 살아 있는 탱크가 남은 편 목록 (팀전 = 팀, 개인전 = 사람)
+  private aliveSides(): string[] {
+    return [...new Set(this.tanks.filter((t) => !t.dead).map((t) => sideOf(t.player)))];
   }
 
   // ---- 카메라 ----
@@ -559,7 +559,7 @@ export class GameScene extends Phaser.Scene {
       // 온라인: 턴 진행·종료는 서버가 정한다
       this.netUpdate(dt);
     } else if ((this.state === 'aiming' || this.state === 'charging')
-      && (this.active.dead || this.aliveTeams().length < 2)) {
+      && (this.active.dead || this.aliveSides().length < 2)) {
       // 조준 중에 내 탱크가 죽거나(맵 아래로 떨어지는 등) 한 팀이 전멸하면 쏘지 않고 바로 정산한다.
       this.beginResolve();
     }
@@ -663,7 +663,7 @@ export class GameScene extends Phaser.Scene {
 
     if (!ai.plan) {
       // 가장 가까운 살아 있는 적을 노린다.
-      const enemies = this.tanks.filter((t) => !t.dead && t.player.team !== tank.player.team);
+      const enemies = this.tanks.filter((t) => !t.dead && sideOf(t.player) !== sideOf(tank.player));
       const enemy = enemies.reduce((a, b) => (Math.abs(b.x - tank.x) < Math.abs(a.x - tank.x) ? b : a));
       ai.plan = planAiShot(tank, enemy, this.wind, this.terrain, this.tanks, this.rng);
       tank.facing = ai.plan.facing;
@@ -861,13 +861,13 @@ export class GameScene extends Phaser.Scene {
     // 온라인: 다음 턴·게임 종료는 서버 신호를 기다린다 (netUpdate)
     if (this.net) { this.state = 'idle'; return; }
 
-    const teams = this.aliveTeams();
-    if (teams.length < 2) this.endGame(teams[0] || null);
+    const sides = this.aliveSides();
+    if (sides.length < 2) this.endGame(sides[0] || null);
     else this.startTurn();
   }
 
-  // winnerTeam: 'blue' | 'red' | null(무승부)
-  private endGame(winnerTeam: Team | null): void {
+  // winnerSide: 이긴 편 (팀전 'blue' | 'red', 개인전 'p<자리>') | null(무승부)
+  private endGame(winnerSide: string | null): void {
     this.state = 'gameover';
     this.hud.hideTurnInfo();
     // 결과음이 잘 들리도록 배경음은 부드럽게 끈다.
@@ -879,15 +879,17 @@ export class GameScene extends Phaser.Scene {
     let message = '무승부';
     let color = 0xfbbf24;
     // 결과음: CPU 팀이 이기면 패배음, 그 외(사람 팀 승리·핫시트)는 승리음. 무승부는 소리 없음.
-    // 온라인: 내 팀이 지면 패배음
-    if (winnerTeam) {
-      const myTeam = this.net ? this.room.state.players.get(this.room.sessionId)?.team : null;
+    // 온라인: 내 편이 지면 패배음
+    const winners = winnerSide ? this.tanks.filter((t) => sideOf(t.player) === winnerSide) : [];
+    if (winners.length) {
+      const mine = this.net ? this.room.state.tanks.findIndex((s) => s.owner === this.room.sessionId) : -1;
       const lost = this.net
-        ? myTeam !== winnerTeam
-        : this.tanks.some((t) => t.player.team === winnerTeam && t.player.ai);
+        ? !(mine >= 0 && sideOf(this.tanks[mine].player) === winnerSide)
+        : winners.some((t) => t.player.ai);
       Sfx.play(lost ? 'game_lose' : 'game_win');
-      const winner = this.tanks.find((t) => t.player.team === winnerTeam)!;
-      const label = this.tanks.length > 2 ? CONFIG.TEAMS[winnerTeam] : winner.player.name;
+      const winner = winners[0];
+      // 여러 대가 함께 이긴 편 = 팀
+      const label = winners.length > 1 ? CONFIG.TEAMS[winner.player.team] : winner.player.name;
       message = `${label} 승리!`;
       color = winner.player.color;
     }

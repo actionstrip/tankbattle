@@ -1,6 +1,7 @@
 // 온라인 로비: 방 목록 → 대기실 → (방장이 시작) → GameScene(온라인).
 // 게임이 끝나면 같은 세션으로 다시 이 화면(대기실)으로 돌아온다.
 import Phaser from 'phaser';
+import { FFA_COLORS, NET } from '@fortress/shared';
 import { CONFIG } from '../config';
 import { ChatBox } from '../net/chat';
 import { LobbyView } from '../net/lobbyView';
@@ -63,9 +64,9 @@ export class LobbyScene extends Phaser.Scene {
     this.detach?.();
     this.detach = null;
     this.view.showBrowse(savedName(), {
-      onCreate: (name, title, teamSize) => this.run(async () => {
+      onCreate: (name, title, kind) => this.run(async () => {
         saveName(name);
-        this.enterRoom(await this.net.create(name, title, teamSize));
+        this.enterRoom(await this.net.create(name, title, kind));
       }),
       onJoin: (name, roomId) => this.run(async () => {
         saveName(name);
@@ -166,10 +167,13 @@ export class LobbyScene extends Phaser.Scene {
         connected: p.connected,
         host: id === state.hostId,
         me: id === room.sessionId,
+        color: `#${FFA_COLORS[p.slot % FFA_COLORS.length].color.toString(16).padStart(6, '0')}`,
       }));
     return {
       title: state.title,
       teamSize: state.teamSize,
+      ffa: state.ffa,
+      maxPlayers: state.ffa ? NET.FFA_MAX : state.teamSize * 2,
       phase: state.phase,
       players,
       amHost: state.hostId === room.sessionId,

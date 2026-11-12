@@ -108,4 +108,52 @@ describe('FortressRoom 게임 진행', () => {
     await until(room, () => room.state.phase === 'lobby');
     expect(room.state.tanks.length).toBe(0);
   });
+
+  // ---- 개인전 ----
+
+  it('개인전: 준비 없이 2명 이상이면 방장이 시작, 사람마다 다른 편·색', async () => {
+    const room = await colyseus.createRoom<FortressRoom>(ROOMS.FORTRESS, { ffa: true, timeScale: 0.01 });
+    expect(room.maxClients).toBe(8);
+    expect(room.metadata.ffa).toBe(true);
+    const a = await colyseus.connectTo(room, { name: 'A' });
+    expect(await a.request('start')).toEqual({ ok: false, reason: '2명 이상 모여야 시작할 수 있어요' });
+    const b = await colyseus.connectTo(room, { name: 'B' });
+    const c = await colyseus.connectTo(room, { name: 'C' });
+    // 팀 바꾸기는 무시
+    b.send('setTeam', { team: 'red' });
+    await room.waitForNextPatch();
+    expect([a, b, c].map((x) => room.state.players.get(x.sessionId)!.slot)).toEqual([0, 1, 2]);
+
+    expect(await a.request('start')).toEqual({ ok: true });
+    await until(room, () => room.state.turnPhase === 'aiming');
+    const tanks = room.state.tanks.toArray();
+    expect(tanks.map((t) => t.owner)).toEqual([a.sessionId, b.sessionId, c.sessionId]);
+    expect(new Set(tanks.map((t) => t.side)).size).toBe(3);
+    expect(new Set(tanks.map((t) => t.color)).size).toBe(3);
+  });
+
+  it('개인전: 마지막 한 명이 남으면 그 사람이 승리', async () => {
+    const room = await colyseus.createRoom<FortressRoom>(ROOMS.FORTRESS, { ffa: true, timeScale: 0.01 });
+    const a = await colyseus.connectTo(room, { name: 'A' });
+    const b = await colyseus.connectTo(room, { name: 'B' });
+    const c = await colyseus.connectTo(room, { name: 'C' });
+    expect(await a.request('start')).toEqual({ ok: true });
+    await until(room, () => room.state.turnPhase === 'aiming');
+    await b.leave();
+    await room.waitForNextPatch();
+    expect(room.state.phase).toBe('playing'); // 아직 두 명
+    await c.leave();
+    await until(room, () => room.state.phase === 'ended');
+    expect(room.state.winner).toBe(room.state.tanks[0].side);
+  });
+
+  it('개인전: 나간 사람의 색 자리는 다음 사람이 쓴다', async () => {
+    const room = await colyseus.createRoom<FortressRoom>(ROOMS.FORTRESS, { ffa: true });
+    await colyseus.connectTo(room);
+    const b = await colyseus.connectTo(room);
+    await b.leave();
+    const c = await colyseus.connectTo(room);
+    await room.waitForNextPatch();
+    expect(room.state.players.get(c.sessionId)!.slot).toBe(1);
+  });
 });
