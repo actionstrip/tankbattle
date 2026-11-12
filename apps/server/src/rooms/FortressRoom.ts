@@ -4,7 +4,7 @@ import type { Client as ColyseusClient, Delayed } from 'colyseus';
 import { z } from 'zod';
 import { NET, RULES, TEAMS, TIMING, cleanText, encodeStock, randomSeed } from '@fortress/shared';
 import type {
-  FortressJoinOptions, FortressRoomMetadata, RoomPhase, ShotMessage, Team, TeamSize, TerrainOp,
+  ChatMessage, FortressJoinOptions, FortressRoomMetadata, RoomPhase, ShotMessage, Team, TeamSize, TerrainOp,
 } from '@fortress/shared';
 import { Match } from '../game/Match';
 import { FortressState, PlayerState, TankState } from './schema/FortressState';
@@ -14,6 +14,7 @@ type Client = ColyseusClient<{
   messages: {
     started: Record<string, never>;
     shot: ShotMessage;
+    chat: ChatMessage;
   };
 }>;
 
@@ -27,8 +28,32 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
   private turnTimer: Delayed | null = null;
   /** 연출 대기 시간 배율. 테스트에서만 줄인다 (NODE_ENV=test 일 때 timeScale 옵션) */
   private timeScale = 1;
+  /** 최근 채팅 (대기실·게임 공통) */
+  private chatLog: ChatMessage[] = [];
+  /** 사람별 마지막 채팅 시각 (도배 방지) */
+  private lastChatAt = new Map<string, number>();
 
   messages = {
+    // ---- 채팅 (대기실·게임 어디서나) ----
+
+    /** 채팅 보내기. 다듬어서 방 전체에 돌린다 */
+    chat: validate(z.object({ text: z.string().max(500) }), (client: Client, { text }) => {
+      const p = this.player(client);
+      if (!p) return;
+      const now = Date.now();
+      if (now - (this.lastChatAt.get(client.sessionId) ?? 0) < NET.CHAT_INTERVAL_MS) return;
+      const clean = cleanText(text, NET.CHAT_MAX, '');
+      if (!clean) return;
+      this.lastChatAt.set(client.sessionId, now);
+      const msg: ChatMessage = { name: p.name, team: p.team as Team, text: clean };
+      this.chatLog.push(msg);
+      if (this.chatLog.length > NET.CHAT_HISTORY) this.chatLog.shift();
+      this.broadcast('chat', msg);
+    }),
+
+    /** 지금까지의 채팅 (입장·재접속 직후 한 번 요청) */
+    chatHistory: (): ChatMessage[] => this.chatLog,
+
     // ---- 대기실 ----
 
     /** 팀 바꾸기 (자리가 있을 때만) */
@@ -137,6 +162,7 @@ export class FortressRoom extends Room<{ state: FortressState; metadata: Fortres
   // 완전히 나감 (스스로 나갔거나 재접속 시간 초과)
   onLeave(client: Client): void {
     this.state.players.delete(client.sessionId);
+    this.lastChatAt.delete(client.sessionId);
     if (this.state.hostId === client.sessionId) this.passHost();
     const m = this.match;
     if (m && this.state.phase === 'playing') {

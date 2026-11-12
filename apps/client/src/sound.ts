@@ -3,6 +3,7 @@
 //   Sfx.loop(id, on, { volume, rate, fade }) — 루프 소리를 켜고 끈다. 매 프레임 불러도 된다. fade = 페이드 ms
 //   Sfx.stopLoops()                      — 모든 루프 정지 (씬 종료 시)
 //   Bgm.start(fade) / Bgm.stop(fade)      — 게임 화면 배경음악 (sounds/bgm/*.mp3 를 무작위 순서로 이어 재생)
+//   Bgm.toggle() / Bgm.isEnabled()        — 음악 켜기·끄기 (타이틀 배경음도 이 설정을 따른다)
 // 브라우저는 첫 클릭/키 입력 전까지 소리를 막는데, howler가 그때 자동으로 오디오를 연다.
 import { Howl, Howler } from 'howler';
 
@@ -99,10 +100,18 @@ export const Sfx = { play, loop, stop, stopLoops, unlock };
 const BGM_FILES = ['Ballade_No_1.mp3','Cool_Girls.mp3'];
 const BGM_VOLUME = 0.1;
 
+// 켜기/끄기 설정 (게임 화면 버튼·M 키). 브라우저에 저장해 새로고침해도 유지한다.
+const BGM_PREF_KEY = 'fortress.bgm';
+let bgmEnabled = ((): boolean => {
+  try { return localStorage.getItem(BGM_PREF_KEY) !== 'off'; } catch { return true; }
+})();
+let bgmWanted = false; // 게임 화면이 음악을 원하는 동안 (start ~ stop)
+
 const bgmHowls: Record<string, Howl> = {};
 let bgmQueue: string[] = [];
 let bgmLast: string | null = null;
-let bgmCur: Howl | null = null;
+// 지금 곡. id가 있어야 일시정지한 곡을 같은 자리에서 이어 틀 수 있다.
+let bgmCur: { h: Howl; id: number } | null = null;
 
 function shuffle<T>(a: T[]): T[] {
   for (let i = a.length - 1; i > 0; i--) {
@@ -115,7 +124,7 @@ function shuffle<T>(a: T[]): T[] {
 function bgmHowl(file: string): Howl {
   return (bgmHowls[file] ??= new Howl({
     src: [`sounds/bgm/${file}`], html5: true, volume: BGM_VOLUME,
-    onend: () => { if (bgmCur === bgmHowls[file]) bgmNext(0); },
+    onend: (id) => { if (bgmCur?.id === id) bgmNext(0); },
   }));
 }
 
@@ -127,25 +136,62 @@ function bgmNext(fade: number): void {
   const file = bgmQueue.shift()!;
   bgmLast = file;
   const h = bgmHowl(file);
-  bgmCur = h;
   h.stop();
-  h.volume(fade > 0 ? 0 : BGM_VOLUME);
-  h.play();
-  if (fade > 0) h.fade(0, BGM_VOLUME, fade);
+  const id = h.play();
+  bgmCur = { h, id };
+  h.volume(fade > 0 ? 0 : BGM_VOLUME, id);
+  if (fade > 0) h.fade(0, BGM_VOLUME, fade, id);
 }
 
 function bgmStart(fade = 800): void {
-  if (bgmCur) return; // 이미 재생 중
+  bgmWanted = true;
+  if (!bgmEnabled || bgmCur) return; // 꺼져 있거나 이미 재생 중
   bgmQueue = []; // 게임마다 새로 섞어 무작위 곡부터
   bgmNext(fade);
 }
 
 function bgmStop(fade = 600): void {
-  const h = bgmCur;
-  if (!h) return;
+  bgmWanted = false;
+  const c = bgmCur;
+  if (!c) return;
   bgmCur = null;
-  h.fade(h.volume() as number, 0, fade);
-  setTimeout(() => { if (bgmCur !== h) h.stop(); }, fade + 20);
+  c.h.fade(c.h.volume(c.id) as number, 0, fade, c.id);
+  setTimeout(() => c.h.stop(c.id), fade + 20);
 }
 
-export const Bgm = { start: bgmStart, stop: bgmStop };
+function bgmSetEnabled(on: boolean): void {
+  if (on === bgmEnabled) return;
+  bgmEnabled = on;
+  try { localStorage.setItem(BGM_PREF_KEY, on ? 'on' : 'off'); } catch { /* 저장 못 해도 이번 접속 동안은 유지 */ }
+  const c = bgmCur;
+  if (!on) {
+    // 페이드아웃 뒤 일시정지 (다시 켜면 같은 곡 같은 자리부터)
+    if (c) {
+      c.h.fade(c.h.volume(c.id) as number, 0, 400, c.id);
+      setTimeout(() => { if (!bgmEnabled && bgmCur === c) c.h.pause(c.id); }, 420);
+    }
+    return;
+  }
+  if (!bgmWanted) return;
+  if (c) {
+    const fadeIn = () => { if (bgmEnabled && bgmCur === c) c.h.fade(c.h.volume(c.id) as number, BGM_VOLUME, 600, c.id); };
+    if (c.h.playing(c.id)) {
+      fadeIn(); // 꺼지는 페이드 도중에 다시 켠 경우
+    } else {
+      // 일시정지한 html5 오디오는 재생이 비동기로 시작되어, 바로 건 페이드가 먹지 않는다 → 재생이 시작된 뒤에 페이드
+      c.h.once('play', fadeIn, c.id);
+      c.h.play(c.id);
+    }
+  } else {
+    bgmQueue = [];
+    bgmNext(800);
+  }
+}
+
+export const Bgm = {
+  start: bgmStart,
+  stop: bgmStop,
+  isEnabled: (): boolean => bgmEnabled,
+  setEnabled: bgmSetEnabled,
+  toggle: (): boolean => { bgmSetEnabled(!bgmEnabled); return bgmEnabled; },
+};

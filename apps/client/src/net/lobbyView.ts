@@ -79,6 +79,10 @@ export class LobbyView {
   private readonly root: HTMLDivElement;
   private readonly style: HTMLStyleElement;
   private readonly panel: HTMLDivElement;
+  /** 화면마다 새로 그리는 부분 */
+  private readonly content: HTMLDivElement;
+  /** 채팅칸 자리. 대기실 상태가 바뀌어 content를 다시 그려도 그대로 남는다 (입력 중인 글 보존) */
+  private readonly chatSlot: HTMLDivElement;
   private msgEl: HTMLElement | null = null;
   private listEl: HTMLElement | null = null;
   private browse: { name: HTMLInputElement; h: BrowseHandlers } | null = null;
@@ -91,6 +95,9 @@ export class LobbyView {
     this.root.className = 'fl-root';
     this.panel = document.createElement('div');
     this.panel.className = 'fl-panel';
+    this.content = document.createElement('div');
+    this.chatSlot = document.createElement('div');
+    this.panel.append(this.content, this.chatSlot);
     this.root.appendChild(this.panel);
     document.body.appendChild(this.root);
     // 입력 중 키가 게임(Phaser 키보드)으로 새지 않게
@@ -102,6 +109,11 @@ export class LobbyView {
     this.style.remove();
   }
 
+  /** 대기실 채팅칸 붙이기 (null이면 비움) */
+  setChat(el: HTMLElement | null): void {
+    this.chatSlot.replaceChildren(...(el ? [el] : []));
+  }
+
   message(text: string, info = false): void {
     if (!this.msgEl) return;
     this.msgEl.textContent = text;
@@ -111,16 +123,16 @@ export class LobbyView {
   /** 대기 중 화면 (연결 중 등) */
   showStatus(text: string, onCancel?: () => void): void {
     this.browse = null;
-    this.panel.innerHTML = `<div class="fl-title">온라인 대전</div><div class="fl-msg info">${esc(text)}</div>
+    this.content.innerHTML = `<div class="fl-title">온라인 대전</div><div class="fl-msg info">${esc(text)}</div>
       ${onCancel ? '<div class="fl-row"><button class="fl-btn" data-a="cancel">뒤로</button></div>' : ''}`;
-    this.msgEl = this.panel.querySelector('.fl-msg');
-    this.panel.querySelector('[data-a=cancel]')?.addEventListener('click', () => onCancel?.());
+    this.msgEl = this.content.querySelector('.fl-msg');
+    this.content.querySelector('[data-a=cancel]')?.addEventListener('click', () => onCancel?.());
   }
 
   // ---- 방 목록 ----
 
   showBrowse(name: string, h: BrowseHandlers): void {
-    this.panel.innerHTML = `
+    this.content.innerHTML = `
       <div class="fl-title">온라인 대전 <span class="fl-sub">방을 고르거나 새로 만드세요</span></div>
       <div class="fl-row">
         <input class="fl-input" data-f="name" maxlength="${NET.NAME_MAX}" placeholder="닉네임" />
@@ -134,16 +146,16 @@ export class LobbyView {
         <span style="flex:1"></span>
         <button class="fl-btn" data-a="back">타이틀로</button>
       </div>`;
-    const nameEl = this.panel.querySelector<HTMLInputElement>('[data-f=name]')!;
-    const titleEl = this.panel.querySelector<HTMLInputElement>('[data-f=title]')!;
+    const nameEl = this.content.querySelector<HTMLInputElement>('[data-f=name]')!;
+    const titleEl = this.content.querySelector<HTMLInputElement>('[data-f=title]')!;
     nameEl.value = name;
-    this.msgEl = this.panel.querySelector('.fl-msg');
-    this.listEl = this.panel.querySelector('[data-f=list]');
+    this.msgEl = this.content.querySelector('.fl-msg');
+    this.listEl = this.content.querySelector('[data-f=list]');
     this.browse = { name: nameEl, h };
     const create = (size: 1 | 2) => h.onCreate(nameEl.value.trim(), titleEl.value.trim(), size);
-    this.panel.querySelector('[data-a=c1]')!.addEventListener('click', () => create(1));
-    this.panel.querySelector('[data-a=c2]')!.addEventListener('click', () => create(2));
-    this.panel.querySelector('[data-a=back]')!.addEventListener('click', () => h.onBack());
+    this.content.querySelector('[data-a=c1]')!.addEventListener('click', () => create(1));
+    this.content.querySelector('[data-a=c2]')!.addEventListener('click', () => create(2));
+    this.content.querySelector('[data-a=back]')!.addEventListener('click', () => h.onBack());
     if (!name) nameEl.focus();
   }
 
@@ -188,7 +200,7 @@ export class LobbyView {
       return `<div class="fl-team" style="--c:${color}"><h3>${label}</h3>${rows}${empty}</div>`;
     };
     const ended = m.phase === 'ended';
-    this.panel.innerHTML = `
+    this.content.innerHTML = `
       <div class="fl-title">${esc(m.title)} <span class="fl-sub">${m.teamSize === 2 ? '2:2 팀전' : '1:1'}</span></div>
       <div class="fl-teams">${team('blue', '블루팀', '#3b82f6')}${team('red', '레드팀', '#ef4444')}</div>
       <div class="fl-msg ${ended ? 'info' : ''}">${ended ? '방장이 대기실로 돌아오면 다음 판을 준비할 수 있어요' : ''}</div>
@@ -200,10 +212,10 @@ export class LobbyView {
         <span style="flex:1"></span>
         <button class="fl-btn" data-a="leave">나가기</button>
       </div>`;
-    this.msgEl = this.panel.querySelector('.fl-msg');
-    this.panel.querySelector('[data-a=team]')!.addEventListener('click', () => h.onSwitchTeam());
-    this.panel.querySelector('[data-a=start]')?.addEventListener('click', () => h.onStart());
-    this.panel.querySelector('[data-a=ready]')?.addEventListener('click', () => h.onReady(!m.myReady));
-    this.panel.querySelector('[data-a=leave]')!.addEventListener('click', () => h.onLeave());
+    this.msgEl = this.content.querySelector('.fl-msg');
+    this.content.querySelector('[data-a=team]')!.addEventListener('click', () => h.onSwitchTeam());
+    this.content.querySelector('[data-a=start]')?.addEventListener('click', () => h.onStart());
+    this.content.querySelector('[data-a=ready]')?.addEventListener('click', () => h.onReady(!m.myReady));
+    this.content.querySelector('[data-a=leave]')!.addEventListener('click', () => h.onLeave());
   }
 }

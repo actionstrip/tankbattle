@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import type { GameMode } from '../config';
 import { hasSavedSession } from '../net/session';
-import { Sfx } from '../sound';
+import { Sfx, Bgm } from '../sound';
 import { sourceImage } from '../tankSlicer';
 import { UI, addFixedBackground, uiPanel, uiText } from '../ui';
 
@@ -67,7 +67,8 @@ export class TitleScene extends Phaser.Scene {
 
     // 배경음: 타이틀에 있는 동안 반복, 게임으로 넘어가면 부드럽게 끈다.
     this.events.once('shutdown', () => Sfx.loop('loop1', false, { fade: 400 }));
-    const startMusic = () => Sfx.loop('loop1', true, { fade: 800 });
+    // 음악을 꺼 둔 경우(게임 화면 BGM 버튼) 타이틀 배경음도 틀지 않는다.
+    const startMusic = () => { if (Bgm.isEnabled()) Sfx.loop('loop1', true, { fade: 800 }); };
     // 브라우저는 첫 클릭/키 입력 전까지 소리를 막는다 → 페이지를 연 뒤 처음 한 번만 안내 팝업으로 입력을 받는다.
     if (this.registry.get('soundUnlocked')) startMusic();
     else this.showSoundPrompt(startMusic);

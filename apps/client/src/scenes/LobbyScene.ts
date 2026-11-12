@@ -2,6 +2,7 @@
 // 게임이 끝나면 같은 세션으로 다시 이 화면(대기실)으로 돌아온다.
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
+import { ChatBox } from '../net/chat';
 import { LobbyView } from '../net/lobbyView';
 import type { RoomViewModel } from '../net/lobbyView';
 import { NetSession, saveName, savedName } from '../net/session';
@@ -142,9 +143,14 @@ export class LobbyScene extends Phaser.Scene {
     };
     room.onStateChange(render);
     room.onLeave(onLeave);
+    // 대기실 채팅 (게임 화면과 같은 기록)
+    const chat = this.net.chat ? new ChatBox(this.net.chat, 'docked') : null;
+    this.view.setChat(chat?.el ?? null);
     this.detach = () => {
       room.onStateChange.remove(render);
       room.onLeave.remove(onLeave);
+      this.view.setChat(null);
+      chat?.destroy();
     };
     if (room.state) render(room.state);
   }

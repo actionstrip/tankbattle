@@ -4,6 +4,7 @@ import { Callbacks, Client } from '@colyseus/sdk';
 import type { Room } from '@colyseus/sdk';
 import { NET, ROOMS } from '@fortress/shared';
 import type { FortressRoomMetadata, TeamSize } from '@fortress/shared';
+import { ChatLog } from './chat';
 // 서버 정의를 타입으로만 가져온다 → 방 이름·옵션·상태·메시지 타입이 서버와 자동으로 맞는다 (번들에는 안 들어감)
 import type { server } from '../../../server/src/app.config';
 
@@ -53,6 +54,8 @@ export function hasSavedSession(): boolean {
 export class NetSession {
   readonly client = new Client<ServerType>(serverUrl());
   room: GameRoom | null = null;
+  /** 지금 방의 채팅 기록 (대기실 ↔ 게임 화면이 같이 쓴다) */
+  chat: ChatLog | null = null;
 
   get sessionId(): string { return this.room?.sessionId ?? ''; }
 
@@ -98,19 +101,24 @@ export class NetSession {
   async leave(): Promise<void> {
     const room = this.room;
     this.room = null;
+    this.chat = null;
     this.forgetToken();
     if (room) await room.leave().catch(() => 0);
   }
 
   private attach(room: GameRoom): GameRoom {
     this.room = room;
+    this.chat = new ChatLog(room);
     const remember = () => {
       try { window.sessionStorage.setItem(TOKEN_KEY, room.reconnectionToken); } catch { /* 저장 못 해도 진행 */ }
     };
     remember();
     room.onReconnect(remember);
     room.onLeave(() => {
-      if (this.room === room) this.room = null;
+      if (this.room === room) {
+        this.room = null;
+        this.chat = null;
+      }
       this.forgetToken();
     });
     return room;

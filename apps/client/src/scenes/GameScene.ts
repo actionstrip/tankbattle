@@ -8,6 +8,7 @@ import { CONFIG } from '../config';
 import type { GameMode, Player, Team, Weapon, WeaponKey } from '../config';
 import { Hud } from '../hud';
 import type { GameRoom, NetSession } from '../net/session';
+import { ChatBox } from '../net/chat';
 import { Snow } from '../snow';
 import { Sfx, Bgm } from '../sound';
 import type { SfxId } from '../sound';
@@ -179,6 +180,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this.net) {
       this.setupNet();
+      this.setupChat();
       // 시작 연출 뒤에는 서버가 턴을 열 때까지 기다린다 (netUpdate가 이어 받음)
       this.playIntroSweep(() => { this.state = 'idle'; });
     } else {
@@ -187,6 +189,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---- 온라인 ----
+
+  // 게임 중 채팅: 왼쪽 위(팀 카드 아래)에 떠 있고, Enter로 입력칸을 연다.
+  private setupChat(): void {
+    const log = this.net?.chat;
+    if (!log) return;
+    const chat = new ChatBox(log, 'floating', {
+      canvas: this.game.canvas,
+      gameW: CONFIG.GAME_W,
+      x: 16,
+      y: this.tanks.length > 2 ? 126 : 104, // 팀 카드 바로 아래
+      w: 380,
+    });
+    const keyboard = this.input.keyboard!;
+    const open = () => {
+      // 파워를 모으는 중에 열면 Space를 뗀 것으로 처리되어 발사되므로 그때는 열지 않는다
+      if (chat.isOpen || this.state === 'charging') return;
+      keyboard.resetKeys(); // 누르고 있던 이동·각도 키가 눌린 채로 남지 않게
+      chat.open();
+    };
+    keyboard.on('keydown-ENTER', open);
+    this.events.once('shutdown', () => {
+      keyboard.off('keydown-ENTER', open);
+      chat.destroy();
+    });
+  }
 
   private setupNet(): void {
     const room = this.room;

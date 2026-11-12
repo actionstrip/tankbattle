@@ -8,6 +8,7 @@ import type { GameScene } from './scenes/GameScene';
 import type { Tank } from './tank';
 import type { Terrain } from './terrain';
 import { UI, uiBar, uiPanel, uiText } from './ui';
+import { Bgm, Sfx } from './sound';
 import type { TextOptions } from './ui';
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -21,9 +22,13 @@ interface CardRow {
 
 interface WeaponSlot extends Rect {
   key: Phaser.GameObjects.Text;
-  name: Phaser.GameObjects.Text;
   left: Phaser.GameObjects.Text;
+  icons: Phaser.GameObjects.Image[];
+  glow: number | null; // 강력탄처럼 아이콘 뒤에 빛을 그릴 색
 }
+
+const GAUGE_GREEN = 0x4ade80; // 포신
+const GAUGE_RED = 0xef4444;   // 차체 기울기
 
 export interface HudState {
   active: Tank | null;
@@ -54,10 +59,18 @@ export class Hud {
   private readonly windValue: Phaser.GameObjects.Text;
   private readonly bannerBg: Phaser.GameObjects.Graphics;
   private readonly banner: Phaser.GameObjects.Text;
-  private readonly bottomItems: (Phaser.GameObjects.Text | Phaser.GameObjects.Zone)[] = [];
+  private readonly bottomItems: (Phaser.GameObjects.Text | Phaser.GameObjects.Zone | Phaser.GameObjects.Image)[] = [];
+  private readonly gauge: { x: number; y: number; r: number };
+  private readonly gaugeText: Phaser.GameObjects.Text;
+  private readonly weaponName: Phaser.GameObjects.Text;
+  private readonly weaponInfo: Phaser.GameObjects.Text;
+  private readonly bgmBtn: { x: number; y: number; hover: boolean };
+  private readonly bgmLabel: Phaser.GameObjects.Text;
+  private readonly helpBtn: { x: number; y: number; hover: boolean };
+  private help: Phaser.GameObjects.GameObject[] | null = null; // 열려 있는 조작 안내 팝업
   private readonly bottomPanel: Phaser.GameObjects.Graphics;
   private readonly activeName: Phaser.GameObjects.Text;
-  private readonly stats: Phaser.GameObjects.Text;
+  private readonly powerText: Phaser.GameObjects.Text;
   private readonly moveBar: Rect;
   private readonly powerBar: Rect;
   private hoverSlot = -1;
@@ -120,13 +133,13 @@ export class Hud {
     this.bannerBg = fixed(scene.add.graphics(), D + 2).setAlpha(0);
     this.banner = text(W / 2, 160, 26, { stroke: 0 }).setOrigin(0.5).setDepth(D + 3).setAlpha(0);
 
-    // ---- 하단 가운데: 조작 패널 ----
-    // 좌우 패널(안내·미니맵) 폭 SIDE_W, 사이 간격 GAP_X로 가운데 패널이 남는 폭을 채운다.
+    // ---- 하단: 조작 패널 (왼쪽 끝 ~ 미니맵 앞) ----
+    // 가장 중요한 각도·파워를 크게: 왼쪽에 각도 게이지, 오른쪽 폭 전체에 굵은 파워 바와 큰 숫자.
+    //   1행 탱크 이름 / 2행 파워 바 + 숫자 / 3행 포탄 아이콘 · 무기 이름 · 이동 바(작게)
     const SIDE_W = 272;
     const GAP_X = 14;
     const ph = 118;
-    const px = 16 + SIDE_W + GAP_X;
-    const P: Rect = { x: px, y: H - 14 - ph, w: W - px * 2, h: ph };
+    const P: Rect = { x: 16, y: H - 14 - ph, w: W - 16 - SIDE_W - GAP_X - 16, h: ph };
     const btext = (x: number, y: number, size: number, opts?: TextOptions) => {
       const t = text(x, y, size, opts);
       this.bottomItems.push(t);
@@ -134,53 +147,53 @@ export class Hud {
     };
     this.bottomPanel = fixed(scene.add.graphics(), D);
     uiPanel(this.bottomPanel, P.x, P.y, P.w, P.h);
-    this.activeName = btext(P.x + 18, P.y + 10, 18);
-    this.stats = btext(P.x + P.w - 18, P.y + 12, 14, { color: UI.MUTED }).setOrigin(1, 0);
-    this.moveBar = { x: P.x + 60, y: P.y + 43, w: 150, h: 12 };
-    this.powerBar = { x: P.x + 274, y: P.y + 43, w: P.w - 274 - 18, h: 12 };
-    btext(P.x + 18, P.y + 40, 13, { color: UI.MUTED }).setText('이동');
-    btext(P.x + 232, P.y + 40, 13, { color: UI.MUTED }).setText('파워');
 
-    // 무기 슬롯 3칸
+    const GR = 50;
+    this.gauge = { x: P.x + 16 + GR, y: P.y + P.h / 2, r: GR };
+    this.gaugeText = btext(this.gauge.x, this.gauge.y, 24, { stroke: 4 }).setOrigin(0.5);
+    const x0 = this.gauge.x + GR + 20; // 게이지 오른쪽 내용 시작
+    const right = P.x + P.w - 18;
+    this.activeName = btext(x0, P.y + 10, 16);
+    btext(x0, P.y + 44, 14, { color: UI.MUTED }).setText('파워');
+    this.powerBar = { x: x0 + 42, y: P.y + 41, w: right - 72 - (x0 + 42), h: 22 };
+    this.powerText = btext(right, P.y + 52, 30, { color: UI.GOLD_CSS, stroke: 4 }).setOrigin(1, 0.5);
+    this.moveBar = { x: right - 80, y: P.y + 89, w: 80, h: 10 };
+    btext(right - 80 - 34, P.y + 86, 12, { color: UI.MUTED }).setText('이동');
+
+    // 포탄 슬롯 3칸: 아이콘 버튼 + 오른쪽에 선택한 무기 이름·수량
     const gap = 8;
-    const sw = (P.w - 36 - gap * 2) / 3;
+    const sw = 48;
+    const sh = 32;
     this.slots = CONFIG.WEAPONS.map((w, i) => {
-      const sx = P.x + 18 + i * (sw + gap);
-      const sy = P.y + 68;
+      const sx = x0 + i * (sw + gap);
+      const sy = P.y + 76;
       // 클릭으로도 무기를 고를 수 있게 슬롯 위에 투명 영역을 둔다.
-      const zone = fixed(scene.add.zone(sx + sw / 2, sy + 19, sw, 38), D + 2)
+      const zone = fixed(scene.add.zone(sx + sw / 2, sy + sh / 2, sw, sh), D + 2)
         .setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => scene.selectWeapon(i));
       zone.on('pointerover', () => { this.hoverSlot = i; });
       zone.on('pointerout', () => { if (this.hoverSlot === i) this.hoverSlot = -1; });
       this.bottomItems.push(zone);
+      const cx = sx + sw / 2;
+      const cy = sy + sh / 2;
+      const icon = (dx: number, dy: number, scale: number, rot = 0) => {
+        const img = fixed(scene.add.image(cx + dx, cy + dy, 'shell').setScale(scale).setRotation(rot));
+        this.bottomItems.push(img);
+        return img;
+      };
+      // 일반탄 1발 / 강력탄 큰 1발(+빛) / 3연발 작은 3발 부채꼴
+      const icons = w.shells > 1
+        ? [-1, 0, 1].map((k) => icon(-2, k * 7, 0.75, k * 0.22))
+        : [icon(0, 0, w.scale ? 1.4 : 1.15)];
       return {
-        x: sx, y: sy, w: sw, h: 38,
-        key: btext(sx + 17, sy + 19, 13).setOrigin(0.5).setText(`${i + 1}`),
-        name: btext(sx + 36, sy + 10, 15).setText(w.name),
-        left: btext(sx + sw - 12, sy + 11, 14, { color: UI.MUTED }).setOrigin(1, 0),
+        x: sx, y: sy, w: sw, h: sh, icons, glow: w.glow ?? null,
+        key: btext(sx + 4, sy + 2, 11).setText(`${i + 1}`),
+        left: btext(sx + sw - 3, sy + sh - 1, 11, { stroke: 3 }).setOrigin(1, 1),
       };
     });
-
-    // ---- 하단 왼쪽: 조작 안내 ----
-    // 하단 세 패널(안내·조작·미니맵)은 높이와 윗선을 맞춘다.
-    const help: Rect = { x: 16, y: P.y, w: SIDE_W, h: P.h };
-    uiPanel(this.panels, help.x, help.y, help.w, help.h);
-    text(help.x + 16, help.y + 10, 13, { color: UI.MUTED }).setText('조작 방법');
-    const helpLines = [
-      ['← →', '이동', '↑ ↓', '각도'],
-      ['Space', '누르고 떼서 발사', '', ''],
-      ['1 2 3', '무기 선택', '드래그', '화면 이동'],
-    ];
-    helpLines.forEach(([k1, d1, k2, d2], i) => {
-      const y = help.y + 38 + i * 24;
-      text(help.x + 16, y, 13, { color: UI.GOLD_CSS }).setText(k1);
-      text(help.x + 66, y, 13, { bold: false }).setText(d1);
-      if (k2) {
-        text(help.x + 146, y, 13, { color: UI.GOLD_CSS }).setText(k2);
-        text(help.x + 196, y, 13, { bold: false }).setText(d2);
-      }
-    });
+    const infoX = x0 + 3 * (sw + gap) + 6;
+    this.weaponName = btext(infoX, P.y + 76, 15);
+    this.weaponInfo = btext(infoX, P.y + 95, 12, { color: UI.MUTED, bold: false });
 
     // ---- 하단 오른쪽: 미니맵 ----
     const mp: Rect = { x: W - 16 - SIDE_W, y: P.y, w: SIDE_W, h: P.h };
@@ -191,6 +204,30 @@ export class Hud {
     text(mp.x + 16, mp.y + 10, 13, { color: UI.MUTED }).setText('미니맵');
     // FPS 표시 (미니맵 패널 제목줄 오른쪽). 0.5초마다 갱신.
     this.fps = text(mp.x + mp.w - 14, mp.y + 10, 13).setOrigin(1, 0);
+    // 제목줄 버튼: [♪ BGM] [?]  (FPS 왼쪽)
+    const by = mp.y + 18;
+    this.helpBtn = { x: mp.x + mp.w - 84, y: by, hover: false };
+    this.bgmBtn = { x: this.helpBtn.x - 12 - 8 - 30, y: by, hover: false };
+    this.bgmLabel = text(this.bgmBtn.x, by, 12).setOrigin(0.5).setText('♪ BGM');
+    text(this.helpBtn.x, by, 14).setOrigin(0.5).setText('?');
+    const button = (b: { x: number; y: number; hover: boolean }, w: number, h: number, onClick: () => void) => {
+      const z = fixed(scene.add.zone(b.x, b.y, w, h), D + 2).setInteractive({ useHandCursor: true });
+      z.on('pointerdown', onClick);
+      z.on('pointerover', () => { b.hover = true; });
+      z.on('pointerout', () => { b.hover = false; });
+    };
+    // BGM만 끄고 켠다 (효과음은 그대로). M 키도 같은 동작.
+    const toggleBgm = () => { Bgm.toggle(); Sfx.play('ui_click'); };
+    button(this.bgmBtn, 60, 22, toggleBgm);
+    button(this.helpBtn, 24, 24, () => { Sfx.play('ui_click'); this.toggleHelp(); });
+    const keyboard = scene.input.keyboard;
+    const onEsc = () => { if (this.help) this.toggleHelp(); };
+    keyboard?.on('keydown-M', toggleBgm);
+    keyboard?.on('keydown-ESC', onEsc);
+    scene.events.once('shutdown', () => {
+      keyboard?.off('keydown-M', toggleBgm);
+      keyboard?.off('keydown-ESC', onEsc);
+    });
     if (scene.textures.exists('minimap')) scene.textures.remove('minimap');
     this.miniTex = scene.textures.createCanvas('minimap', this.mini.w, this.mini.h)!;
     fixed(scene.add.image(this.mini.x, this.mini.y, 'minimap').setOrigin(0), D + 0.2);
@@ -246,6 +283,7 @@ export class Hud {
     this.drawTimer(g, timeLeft);
     this.drawWind(g, wind);
     this.drawMinimap(g);
+    this.drawTitleButtons(g);
     if (shell) this.drawShellIndicator(g, shell);
 
     for (const t of this.tanks) if (!t.dead) this.drawTankHpBar(this.world, t);
@@ -315,8 +353,8 @@ export class Hud {
   ): void {
     this.activeName.setText(`${tank.player.name}${isAi ? '  CPU' : ''}`)
       .setColor(Phaser.Display.Color.IntegerToColor(tank.player.color).rgba);
-    const tilt = Math.round(Phaser.Math.RadToDeg(-tank.slope * tank.facing));
-    this.stats.setText(`각도 ${Math.round(tank.elevation)}°    기울기 ${tilt > 0 ? '+' : ''}${tilt}°    파워 ${Math.round(power)}`);
+    this.powerText.setText(`${Math.round(power)}`);
+    this.drawAngleGauge(g, tank);
 
     // 이동량
     const m = this.moveBar;
@@ -325,8 +363,10 @@ export class Hud {
 
     // 파워 (25/50/75 눈금 + 지난번 파워 표시)
     const p = this.powerBar;
-    uiBar(g, p.x, p.y, p.w, p.h, power / 100, UI.GOLD);
-    g.fillStyle(0xffffff, 0.25);
+    // 빈 트랙도 보이도록 밝은 바탕 + 테두리
+    uiBar(g, p.x, p.y, p.w, p.h, power / 100, UI.GOLD, 0x2a4561);
+    g.lineStyle(1, 0xffffff, 0.2).strokeRoundedRect(p.x, p.y, p.w, p.h, p.h / 2);
+    g.fillStyle(0xffffff, 0.3);
     for (const q of [0.25, 0.5, 0.75]) g.fillRect(p.x + p.w * q - 0.5, p.y + 2, 1, p.h - 4);
     if (tank.lastPower !== null) {
       const mx = p.x + (p.w * tank.lastPower) / 100;
@@ -342,11 +382,132 @@ export class Hud {
       g.fillStyle(selected ? 0x23405f : hover ? 0x1b3349 : 0x13263a, 1).fillRoundedRect(s.x, s.y, s.w, s.h, 8);
       g.lineStyle(selected ? 2 : 1, selected ? UI.GOLD : 0xffffff, selected ? 1 : 0.12)
         .strokeRoundedRect(s.x, s.y, s.w, s.h, 8);
-      g.fillStyle(selected ? UI.GOLD : 0x2c4560, 1).fillRoundedRect(s.x + 7, s.y + 9, 20, 20, 5);
-      s.key.setColor(selected ? '#0b1a2b' : UI.TEXT);
+      // 어두운 포탄이 잘 보이도록 밝은 원판 (강력탄은 초록 빛)
+      g.fillStyle(s.glow ?? 0x3b5573, empty ? 0.25 : s.glow !== null ? 0.6 : 1)
+        .fillCircle(s.x + s.w / 2, s.y + s.h / 2, 13);
+      s.key.setColor(selected ? UI.GOLD_CSS : UI.MUTED);
       s.left.setText(stock === Infinity ? '∞' : `×${stock}`);
-      for (const t of [s.key, s.name, s.left]) t.setAlpha(empty ? 0.35 : 1);
+      for (const t of [s.key, s.left, ...s.icons]) t.setAlpha(empty ? 0.35 : 1);
     });
+    const w = CONFIG.WEAPONS[weaponIndex];
+    const stock = tank.stock[weaponIndex];
+    this.weaponName.setText(w.name);
+    this.weaponInfo.setText(stock === Infinity ? '무제한' : `남은 ×${stock}`);
+  }
+
+  // 포 각도 게이지. 빨강 = 차체 기울기, 초록 = 포신(실제 발사 방향), 숫자 = 두 각을 더한 발사 각도.
+  // 각도는 수평 기준, 탱크가 바라보는 쪽으로 잰다 (왼쪽을 보면 게이지도 좌우 반전).
+  private drawAngleGauge(g: Phaser.GameObjects.Graphics, tank: Tank): void {
+    const { x: cx, y: cy, r } = this.gauge;
+    const f = tank.facing >= 0 ? 1 : -1;
+    const tilt = Phaser.Math.RadToDeg(-tank.slope * tank.facing);
+    const total = tank.elevation + tilt;
+    const T = CONFIG.TANK;
+    // 각도(도) → 화면 각도(rad)
+    const ang = (deg: number) => (f > 0 ? -Phaser.Math.DegToRad(deg) : Math.PI + Phaser.Math.DegToRad(deg));
+    const pt = (deg: number, rr: number) => ({ x: cx + Math.cos(ang(deg)) * rr, y: cy + Math.sin(ang(deg)) * rr });
+    const arc = (rr: number, from: number, to: number) => {
+      g.beginPath();
+      g.arc(cx, cy, rr, ang(from), ang(to), f > 0 ? to > from : to < from);
+      g.strokePath();
+    };
+
+    // 바탕 (타이머 원과 같은 스타일)
+    g.fillStyle(UI.PANEL, 0.92).fillCircle(cx, cy, r);
+    g.lineStyle(3, 0x1e3348, 1).strokeCircle(cx, cy, r - 2);
+    g.lineStyle(1.5, UI.GOLD, 0.6).strokeCircle(cx, cy, r);
+    // 수평선 + 0/45/90° 눈금
+    g.lineStyle(1, 0xffffff, 0.25).lineBetween(cx - r + 6, cy, cx + r - 6, cy);
+    g.lineStyle(1.5, 0xffffff, 0.4);
+    for (const d of [0, 45, 90]) {
+      const a = pt(d, r - 9);
+      const b = pt(d, r - 4);
+      g.lineBetween(a.x, a.y, b.x, b.y);
+    }
+    // 올릴 수 있는 범위 (차체 기준 ELEV_MIN~MAX)
+    g.lineStyle(5, GAUGE_GREEN, 0.18);
+    arc(r - 7, tilt + T.ELEV_MIN, tilt + T.ELEV_MAX);
+    // 차체 축 (빨강) + 수평→차체 호
+    const b1 = pt(tilt, r - 8);
+    const b2 = pt(tilt + 180, r - 8);
+    g.lineStyle(3, GAUGE_RED, 1).lineBetween(b1.x, b1.y, b2.x, b2.y);
+    if (Math.abs(tilt) >= 1) {
+      g.lineStyle(2, GAUGE_RED, 0.9);
+      arc(r * 0.42, 0, tilt);
+    }
+    // 포신 (초록) + 차체→포신 호
+    g.lineStyle(2.5, GAUGE_GREEN, 0.9);
+    arc(r * 0.62, tilt, total);
+    const tip = pt(total, r - 6);
+    g.lineStyle(4, GAUGE_GREEN, 1).lineBetween(cx, cy, tip.x, tip.y);
+    g.fillStyle(GAUGE_GREEN, 1).fillCircle(tip.x, tip.y, 3.5);
+    g.fillStyle(0xffffff, 1).fillCircle(cx, cy, 3);
+
+    // 숫자는 포신과 겹치지 않는 쪽(보통 아래)에
+    const ty = total > -20 ? cy + r * 0.5 : cy - r * 0.5;
+    this.gaugeText.setText(`${Math.round(total)}°`).setPosition(cx, ty);
+  }
+
+  // 미니맵 제목줄 버튼: [♪ BGM] 알약(끄면 회색 + 사선), [?] 동그라미
+  private drawTitleButtons(g: Phaser.GameObjects.Graphics): void {
+    const b = this.bgmBtn;
+    const on = Bgm.isEnabled();
+    const w = 60;
+    const h = 22;
+    g.fillStyle(b.hover ? 0x23405f : 0x13263a, 1).fillRoundedRect(b.x - w / 2, b.y - h / 2, w, h, h / 2);
+    g.lineStyle(1.5, on ? UI.GOLD : 0x64748b, on ? 0.9 : 0.6).strokeRoundedRect(b.x - w / 2, b.y - h / 2, w, h, h / 2);
+    this.bgmLabel.setColor(on ? UI.GOLD_CSS : '#64748b');
+    if (!on) g.lineStyle(2, 0x94a3b8, 0.9).lineBetween(b.x - w / 2 + 8, b.y + 7, b.x + w / 2 - 8, b.y - 7);
+
+    const q = this.helpBtn;
+    g.fillStyle(q.hover || this.help ? 0x23405f : 0x13263a, 1).fillCircle(q.x, q.y, 11);
+    g.lineStyle(1.5, UI.GOLD, this.help ? 1 : 0.6).strokeCircle(q.x, q.y, 11);
+  }
+
+  // 조작 안내 팝업 열기/닫기 (? 버튼·Esc). 게임은 멈추지 않는다 (온라인).
+  private toggleHelp(): void {
+    if (this.help) {
+      for (const o of this.help) o.destroy();
+      this.help = null;
+      return;
+    }
+    const scene = this.scene;
+    const W = CONFIG.GAME_W;
+    const H = CONFIG.GAME_H;
+    const D = CONFIG.DEPTH.OVERLAY;
+    const fix = <T extends Phaser.GameObjects.Components.ScrollFactor & Phaser.GameObjects.Components.Depth>(o: T, d = D + 1): T => {
+      o.setScrollFactor(0).setDepth(d);
+      return o;
+    };
+    // 화면 전체를 덮어 뒤의 화면 드래그·버튼을 막고, 클릭하면 닫는다.
+    const dim = fix(scene.add.rectangle(0, 0, W, H, 0x000000, 0.45).setOrigin(0), D).setInteractive();
+    dim.on('pointerdown', () => this.toggleHelp());
+    const lines: [string, string][] = [
+      ['← →  /  A D', '이동'],
+      ['↑ ↓  /  W S', '포 각도'],
+      ['Space', '누르고 있다가 떼면 발사'],
+      ['1  2  3', '포탄 선택'],
+      ['드래그', '맵 둘러보기'],
+      ['Enter', '채팅 (온라인)'],
+      ['M', 'BGM 켜기/끄기'],
+    ];
+    const pw = 420;
+    const ph = 92 + lines.length * 30;
+    const px = W / 2 - pw / 2;
+    const py = H / 2 - ph / 2;
+    const g = fix(scene.add.graphics());
+    uiPanel(g, px, py, pw, ph, { radius: 16, alpha: 0.95 });
+    g.lineStyle(2, UI.GOLD, 0.8).strokeRoundedRect(px, py, pw, ph, 16);
+    const objs: Phaser.GameObjects.GameObject[] = [dim, g];
+    objs.push(fix(uiText(scene, W / 2, py + 30, 20).setText('조작 방법').setOrigin(0.5)));
+    lines.forEach(([k, d], i) => {
+      const y = py + 66 + i * 30;
+      objs.push(fix(uiText(scene, px + 40, y, 15, { color: UI.GOLD_CSS }).setText(k).setOrigin(0, 0.5)));
+      objs.push(fix(uiText(scene, px + 190, y, 15, { bold: false }).setText(d).setOrigin(0, 0.5)));
+    });
+    objs.push(fix(uiText(scene, W / 2, py + ph - 20, 12, { color: UI.MUTED, bold: false })
+      .setText('아무 곳이나 클릭하거나 Esc로 닫기').setOrigin(0.5)));
+    this.help = objs;
   }
 
   // 탱크 바로 아래에 붙는 에너지 바

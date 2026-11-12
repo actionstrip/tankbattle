@@ -18,7 +18,17 @@ export const NET = {
   NAME_MAX: 12,          // 닉네임 최대 글자 수
   TITLE_MAX: 24,         // 방 제목 최대 글자 수
   RECONNECT_SECONDS: 30, // 접속이 끊긴 사람을 기다리는 시간
+  CHAT_MAX: 80,          // 채팅 한 줄 최대 글자 수
+  CHAT_HISTORY: 30,      // 방에 보관하는 최근 채팅 수 (늦게 들어온·재접속한 사람에게 보여 줌)
+  CHAT_INTERVAL_MS: 700, // 같은 사람이 이보다 빨리 보내면 무시 (도배 방지)
 } as const;
+
+/** 채팅 한 줄 (서버 → 모두) */
+export interface ChatMessage {
+  name: string;
+  team: Team;
+  text: string;
+}
 
 export type RoomPhase = 'lobby' | 'playing' | 'ended';
 
