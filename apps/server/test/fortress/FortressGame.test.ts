@@ -1,9 +1,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { boot } from '@colyseus/testing';
 import type { ColyseusTestServer } from '@colyseus/testing';
-import { ROOMS, RULES } from '@fortress/shared';
+import { FFA_COLORS, ROOMS, RULES } from '@fortress/shared';
 import type { ShotMessage } from '@fortress/shared';
 import type { FortressRoom } from '../../src/fortress/FortressRoom';
+import { Match } from '../../src/fortress/Match';
 import { server } from '../../src/app.config';
 
 /** 조건이 맞을 때까지 패치를 기다린다 */
@@ -127,9 +128,25 @@ describe('FortressRoom 게임 진행', () => {
     expect(await a.request('start')).toEqual({ ok: true });
     await until(room, () => room.state.turnPhase === 'aiming');
     const tanks = room.state.tanks.toArray();
-    expect(tanks.map((t) => t.owner)).toEqual([a.sessionId, b.sessionId, c.sessionId]);
+    // 차례 순서는 무작위지만 세 사람 모두 한 대씩
+    expect(tanks.map((t) => t.owner).sort()).toEqual([a.sessionId, b.sessionId, c.sessionId].sort());
     expect(new Set(tanks.map((t) => t.side)).size).toBe(3);
     expect(new Set(tanks.map((t) => t.color)).size).toBe(3);
+    // 색은 들어온 자리 그대로 (A = 파랑)
+    expect(tanks.find((t) => t.owner === a.sessionId)!.color).toBe(FFA_COLORS[0].color);
+  });
+
+  it('개인전: 차례 순서는 판마다 무작위', () => {
+    const seats = ['A', 'B', 'C', 'D'].map((name, slot) => ({ sessionId: name, name, team: 'blue' as const, slot }));
+    const orders = new Set<string>();
+    for (let seed = 1; seed <= 20; seed++) orders.add(new Match(seed, seats, true).owners.join(''));
+    expect(orders.size).toBeGreaterThan(1);
+    // 팀전은 블루·레드 번갈아 (무작위 아님)
+    const teamSeats = [
+      { sessionId: 'b1', name: 'b1', team: 'blue' as const },
+      { sessionId: 'r1', name: 'r1', team: 'red' as const },
+    ];
+    expect(new Match(7, teamSeats).owners).toEqual(['b1', 'r1']);
   });
 
   it('개인전: 마지막 한 명이 남으면 그 사람이 승리', async () => {
@@ -144,7 +161,7 @@ describe('FortressRoom 게임 진행', () => {
     expect(room.state.phase).toBe('playing'); // 아직 두 명
     await c.leave();
     await until(room, () => room.state.phase === 'ended');
-    expect(room.state.winner).toBe(room.state.tanks[0].side);
+    expect(room.state.winner).toBe(room.state.tanks.find((t) => t.owner === a.sessionId)!.side);
   });
 
   it('개인전: 나간 사람의 색 자리는 다음 사람이 쓴다', async () => {

@@ -31,7 +31,7 @@ export class Match {
 
   /**
    * seats는 들어온 순서로 정렬되어 있어야 한다.
-   * 팀전: 턴 순서는 블루1·레드1·블루2·레드2. 개인전(ffa): 들어온 순서, 사람마다 편·색이 다르다.
+   * 팀전: 턴 순서는 블루1·레드1·블루2·레드2. 개인전(ffa): 판마다 무작위 순서, 사람마다 편·색이 다르다.
    */
   constructor(seed: number, seats: Seat[], ffa = false) {
     this.rng = new Rng(seed);
@@ -40,7 +40,8 @@ export class Match {
     let ordered: Seat[];
     let players: Player[];
     if (ffa) {
-      ordered = seats;
+      // 차례 순서는 판마다 무작위 (먼저 들어온 사람이 늘 선공이 되지 않게). 색은 자리(slot) 그대로
+      ordered = this.rng.shuffle([...seats]);
       players = ordered.map((seat, i) => {
         const slot = seat.slot ?? i;
         const c = FFA_COLORS[slot % FFA_COLORS.length];
