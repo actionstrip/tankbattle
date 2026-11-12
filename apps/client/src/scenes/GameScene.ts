@@ -50,6 +50,7 @@ export class GameScene extends Phaser.Scene {
   private hud!: Hud;
   private snow!: Snow;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+  private wasd!: Record<'up' | 'down' | 'left' | 'right', Phaser.Input.Keyboard.Key>; // 방향키와 같은 동작
   private weaponKeys!: Phaser.Input.Keyboard.Key[];
 
   private state: GameState = 'idle';
@@ -139,6 +140,7 @@ export class GameScene extends Phaser.Scene {
 
     const keyboard = this.input.keyboard!;
     this.cursors = keyboard.createCursorKeys();
+    this.wasd = keyboard.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' }) as typeof this.wasd;
     this.weaponKeys = [
       keyboard.addKey('ONE'),
       keyboard.addKey('TWO'),
@@ -416,6 +418,11 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  // 방향키 또는 WASD 중 하나라도 눌려 있으면 true
+  private dirDown(dir: 'up' | 'down' | 'left' | 'right'): boolean {
+    return this.cursors[dir].isDown || this.wasd[dir].isDown;
+  }
+
   // 쏘기 전(조준·충전 중)에는 화면을 끌거나 마우스를 화면 끝에 두어 맵을 둘러볼 수 있다.
   // 내 차례뿐 아니라 온라인 상대 차례에도 (상대가 쏘면 포탄을 따라가므로 그때까지).
   private get canDragCamera(): boolean {
@@ -588,7 +595,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     let moved = false;
-    const moveDir = this.cursors.left.isDown ? -1 : (this.cursors.right.isDown ? 1 : 0);
+    const moveDir = this.dirDown('left') ? -1 : (this.dirDown('right') ? 1 : 0);
     // 온라인: 서버가 같은 코드로 움직이고, 화면은 먼저 움직여 보인다 (턴 시작 때 서버 위치로 맞춤)
     this.sendMove(moveDir);
     if (moveDir) moved = tank.move(moveDir, dt);
@@ -606,8 +613,8 @@ export class GameScene extends Phaser.Scene {
 
     const T = CONFIG.TANK;
     const prevElev = tank.elevation;
-    if (this.cursors.up.isDown) tank.elevation += T.AIM_SPEED * dt;
-    if (this.cursors.down.isDown) tank.elevation -= T.AIM_SPEED * dt;
+    if (this.dirDown('up')) tank.elevation += T.AIM_SPEED * dt;
+    if (this.dirDown('down')) tank.elevation -= T.AIM_SPEED * dt;
     tank.elevation = Phaser.Math.Clamp(tank.elevation, T.ELEV_MIN, T.ELEV_MAX);
     this.sndAim = tank.elevation !== prevElev;
     this.sendAim(tank.elevation);
